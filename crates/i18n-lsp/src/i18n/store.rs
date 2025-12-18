@@ -47,6 +47,7 @@ impl TranslationStore {
 
     fn scan_directory(&self, dir: &Path) {
         let json_glob = Glob::new("*.json").unwrap().compile_matcher();
+        let yaml_glob = Glob::new("*.{yaml,yml}").unwrap().compile_matcher();
 
         for entry in WalkDir::new(dir)
             .max_depth(3)
@@ -54,7 +55,9 @@ impl TranslationStore {
             .filter_map(|e| e.ok())
         {
             let path = entry.path();
-            if path.is_file() && json_glob.is_match(path.file_name().unwrap_or_default()) {
+            let file_name = path.file_name().unwrap_or_default();
+            
+            if path.is_file() && (json_glob.is_match(file_name) || yaml_glob.is_match(file_name)) {
                 if let Some(locale) = self.extract_locale_from_path(path) {
                     self.load_translation_file(path, &locale);
                 }
