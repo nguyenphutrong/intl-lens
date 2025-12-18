@@ -252,6 +252,7 @@ impl LanguageServer for I18nBackend {
                     ..Default::default()
                 }),
                 definition_provider: Some(OneOf::Left(true)),
+                inlay_hint_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -397,6 +398,54 @@ impl LanguageServer for I18nBackend {
         };
 
         Ok(Some(GotoDefinitionResponse::Scalar(location)))
+    }
+
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let uri = params.text_document.uri;
+        
+        let docs = self.documents.read().await;
+        let Some(doc) = docs.get(&uri.to_string()) else {
+            return Ok(None);
+        };
+
+        let content = doc.content.to_string();
+        let key_finder = self.key_finder.read().await;
+        let found_keys = key_finder.find_keys(&content);
+
+        let translation_store = self.translation_store.read().await;
+        let config = self.config.read().await;
+        
+        let Some(store) = translation_store.as_ref() else {
+            return Ok(None);
+        };
+
+        let mut hints = Vec::new();
+        
+        for found_key in found_keys {
+            if let Some(translation) = store.get_translation(&found_key.key, &config.source_locale) {
+                let display_text = if translation.len() > 30 {
+                    format!("{}...", &translation[..27])
+                } else {
+                    translation
+                };
+                
+                hints.push(InlayHint {
+                    position: Position {
+                        line: found_key.line as u32,
+                        character: found_key.end_char as u32,
+                    },
+                    label: InlayHintLabel::String(format!(" → {}", display_text)),
+                    kind: Some(InlayHintKind::PARAMETER),
+                    text_edits: None,
+                    tooltip: None,
+                    padding_left: Some(true),
+                    padding_right: None,
+                    data: None,
+                });
+            }
+        }
+
+        Ok(Some(hints))
     }
 }
 
