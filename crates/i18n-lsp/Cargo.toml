@@ -1,0 +1,25 @@
+[package]
+name = "i18n-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "i18n-lsp"
+path = "src/main.rs"
+
+[dependencies]
+tower-lsp.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+dashmap.workspace = true
+regex.workspace = true
+globset.workspace = true
+walkdir.workspace = true
+ropey.workspace = true

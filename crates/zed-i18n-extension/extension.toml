@@ -1,0 +1,17 @@
+id = "zed-i18n"
+name = "i18n Ally"
+version = "0.1.0"
+schema_version = 1
+authors = ["Trong Nguyen"]
+description = "Internationalization (i18n) support for Zed - inline translations, hover info, and diagnostics"
+repository = "https://github.com/user/zed-i18n"
+
+[language_servers.i18n-lsp]
+name = "i18n Language Server"
+languages = ["TypeScript", "TSX", "JavaScript", "JSX"]
+
+[language_servers.i18n-lsp.language_ids]
+"TypeScript" = "typescript"
+"TSX" = "typescriptreact"
+"JavaScript" = "javascript"
+"JSX" = "javascriptreact"

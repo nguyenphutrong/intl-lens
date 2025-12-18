@@ -1,0 +1,12 @@
+[package]
+name = "zed-i18n-extension"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api.workspace = true
