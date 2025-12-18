@@ -272,6 +272,36 @@ impl LanguageServer for I18nBackend {
         Ok(())
     }
 
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        let dominated_changes = params.changes.iter().any(|change| {
+            change.uri.path().ends_with(".json")
+        });
+
+        if dominated_changes {
+            tracing::info!("Translation files changed, reloading...");
+            
+            let workspace_root = self.workspace_root.read().await;
+            let config = self.config.read().await;
+            
+            if let Some(root) = workspace_root.as_ref() {
+                let store = TranslationStore::new(root.clone());
+                store.scan_and_load(&config.locale_paths);
+                
+                let locales = store.get_locales();
+                let keys = store.get_all_keys();
+                
+                self.client
+                    .log_message(
+                        MessageType::INFO,
+                        format!("Reloaded translations: {} locales, {} keys", locales.len(), keys.len()),
+                    )
+                    .await;
+                
+                *self.translation_store.write().await = Some(store);
+            }
+        }
+    }
+
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri.clone();
         let content = params.text_document.text.clone();
