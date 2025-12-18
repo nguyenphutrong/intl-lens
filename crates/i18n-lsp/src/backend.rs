@@ -209,7 +209,16 @@ impl I18nBackend {
         
         Some(Location {
             uri,
-            range: Range::default(),
+            range: Range {
+                start: Position {
+                    line: location.line as u32,
+                    character: 0,
+                },
+                end: Position {
+                    line: location.line as u32,
+                    character: 0,
+                },
+            },
         })
     }
 }
@@ -394,8 +403,15 @@ impl LanguageServer for I18nBackend {
             .unwrap_or("")
             .to_string();
 
-        let prefix = Self::extract_completion_prefix(&line_content, position.character as usize);
+        let Some(prefix) = Self::extract_completion_prefix(&line_content, position.character as usize) else {
+            return Ok(None);
+        };
+        
         let completions = self.get_completions(&prefix).await;
+        
+        if completions.is_empty() {
+            return Ok(None);
+        }
 
         Ok(Some(CompletionResponse::Array(completions)))
     }
@@ -432,6 +448,7 @@ impl LanguageServer for I18nBackend {
 
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
         let uri = params.text_document.uri;
+        let range = params.range;
         
         let docs = self.documents.read().await;
         let Some(doc) = docs.get(&uri.to_string()) else {
@@ -452,6 +469,11 @@ impl LanguageServer for I18nBackend {
         let mut hints = Vec::new();
         
         for found_key in found_keys {
+            let key_line = found_key.line as u32;
+            if key_line < range.start.line || key_line > range.end.line {
+                continue;
+            }
+            
             if let Some(translation) = store.get_translation(&found_key.key, &config.source_locale) {
                 let display_text = if translation.len() > 30 {
                     format!("{}...", &translation[..27])
@@ -461,15 +483,15 @@ impl LanguageServer for I18nBackend {
                 
                 hints.push(InlayHint {
                     position: Position {
-                        line: found_key.line as u32,
-                        character: found_key.end_char as u32,
+                        line: key_line,
+                        character: (found_key.end_char + 2) as u32,
                     },
-                    label: InlayHintLabel::String(format!(" → {}", display_text)),
+                    label: InlayHintLabel::String(display_text),
                     kind: Some(InlayHintKind::PARAMETER),
                     text_edits: None,
                     tooltip: None,
                     padding_left: Some(true),
-                    padding_right: None,
+                    padding_right: Some(true),
                     data: None,
                 });
             }
@@ -480,18 +502,22 @@ impl LanguageServer for I18nBackend {
 }
 
 impl I18nBackend {
-    fn extract_completion_prefix(line: &str, character: usize) -> String {
+    fn extract_completion_prefix(line: &str, character: usize) -> Option<String> {
         let before_cursor = &line[..character.min(line.len())];
         
         let quote_patterns = ["t(\"", "t('", "$t(\"", "$t('", "i18n.t(\"", "i18n.t('"];
         
         for pattern in quote_patterns {
             if let Some(pos) = before_cursor.rfind(pattern) {
-                let start = pos + pattern.len();
-                return before_cursor[start..].to_string();
+                let after_quote = pos + pattern.len();
+                let prefix = &before_cursor[after_quote..];
+                
+                if !prefix.contains('"') && !prefix.contains('\'') {
+                    return Some(prefix.to_string());
+                }
             }
         }
 
-        String::new()
+        None
     }
 }

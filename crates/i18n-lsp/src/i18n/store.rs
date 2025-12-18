@@ -13,12 +13,14 @@ pub struct TranslationEntry {
     pub value: String,
     pub file_path: PathBuf,
     pub locale: String,
+    pub line: usize,
 }
 
 #[derive(Debug, Clone)]
 pub struct TranslationLocation {
     pub file_path: PathBuf,
     pub locale: String,
+    pub line: usize,
 }
 
 pub struct TranslationStore {
@@ -96,6 +98,7 @@ impl TranslationStore {
                             value,
                             file_path: path.to_path_buf(),
                             locale: locale.to_string(),
+                            line: 0,
                         },
                     );
                 }
@@ -137,11 +140,37 @@ impl TranslationStore {
 
     pub fn get_translation_location(&self, key: &str, locale: &str) -> Option<TranslationLocation> {
         self.translations.get(locale).and_then(|map| {
-            map.get(key).map(|e| TranslationLocation {
-                file_path: e.file_path.clone(),
-                locale: e.locale.clone(),
+            map.get(key).map(|e| {
+                let line = Self::find_key_line_in_file(&e.file_path, key).unwrap_or(0);
+                TranslationLocation {
+                    file_path: e.file_path.clone(),
+                    locale: e.locale.clone(),
+                    line,
+                }
             })
         })
+    }
+
+    fn find_key_line_in_file(file_path: &Path, key: &str) -> Option<usize> {
+        let content = std::fs::read_to_string(file_path).ok()?;
+        
+        let last_part = key.split('.').last().unwrap_or(key);
+        let search_patterns = [
+            format!("\"{}\"", last_part),
+            format!("'{}'", last_part),
+            format!("{}: ", last_part),
+            format!("{}:", last_part),
+        ];
+        
+        for (line_num, line) in content.lines().enumerate() {
+            for pattern in &search_patterns {
+                if line.contains(pattern) {
+                    return Some(line_num);
+                }
+            }
+        }
+        
+        None
     }
 
     pub fn get_all_keys(&self) -> Vec<String> {
