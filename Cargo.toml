@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 authors = ["Trong Nguyen"]
-repository = "https://github.com/user/zed-i18n"
+repository = "https://github.com/nguyenphutrong/intl-lens"
 
 [workspace.dependencies]
 tower-lsp = "0.20"

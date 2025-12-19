@@ -1,16 +1,16 @@
-id = "zed-i18n"
-name = "i18n Ally"
+id = "intl-lens"
+name = "Intl Lens"
 version = "0.1.0"
 schema_version = 1
 authors = ["Trong Nguyen"]
 description = "Internationalization (i18n) support for Zed - inline translations, hover info, and diagnostics"
-repository = "https://github.com/user/zed-i18n"
+repository = "https://github.com/nguyenphutrong/intl-lens"
 
-[language_servers.i18n-lsp]
-name = "i18n Language Server"
+[language_servers.intl-lens]
+name = "Intl Lens Language Server"
 languages = ["TypeScript", "TSX", "JavaScript", "JSX"]
 
-[language_servers.i18n-lsp.language_ids]
+[language_servers.intl-lens.language_ids]
 "TypeScript" = "typescript"
 "TSX" = "typescriptreact"
 "JavaScript" = "javascript"

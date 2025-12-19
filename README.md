@@ -1,8 +1,8 @@
 <div align="center">
 
-# 🌍 zed-i18n
+# 🔍 Intl Lens
 
-**Finally, i18n-ally for Zed Editor.**
+**i18n support for Zed Editor - see translations inline.**
 
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -51,32 +51,39 @@ ja: 送信
 
 ## 🚀 Installation
 
-### Quick Start (Build from Source)
+### From Zed Extensions (Recommended)
+
+1. Open Zed
+2. Go to Extensions (`cmd+shift+x`)
+3. Search for "Intl Lens"
+4. Click Install
+
+### Build from Source
 
 ```bash
-git clone https://github.com/user/zed-i18n.git
-cd zed-i18n
-cargo build --release -p i18n-lsp
-ln -sf $(pwd)/target/release/i18n-lsp ~/.local/bin/
+git clone https://github.com/nguyenphutrong/intl-lens.git
+cd intl-lens
+cargo build --release -p intl-lens
+ln -sf $(pwd)/target/release/intl-lens ~/.local/bin/
 ```
 
-### Configure Zed
+### Configure Zed (Manual Installation)
 
 Add to `~/.config/zed/settings.json`:
 
 ```jsonc
 {
   "lsp": {
-    "i18n-lsp": {
-      "binary": { "path": "i18n-lsp" }
+    "intl-lens": {
+      "binary": { "path": "intl-lens" }
     }
   },
   "languages": {
     "TSX": {
-      "language_servers": ["typescript-language-server", "i18n-lsp", "..."]
+      "language_servers": ["typescript-language-server", "intl-lens", "..."]
     },
     "TypeScript": {
-      "language_servers": ["typescript-language-server", "i18n-lsp", "..."]
+      "language_servers": ["typescript-language-server", "intl-lens", "..."]
     }
   }
 }
@@ -168,7 +175,7 @@ cargo build         # Debug build
 cargo build -r      # Release build
 
 # Run with debug logging
-RUST_LOG=debug ./target/release/i18n-lsp
+RUST_LOG=debug ./target/release/intl-lens
 ```
 
 ## 🤝 Contributing
@@ -191,7 +198,7 @@ Contributions are welcome! Here's how:
 
 ## 📄 License
 
-MIT © [Trong Nguyen](https://github.com/user)
+MIT © [Trong Nguyen](https://github.com/nguyenphutrong)
 
 ---
 
@@ -199,6 +206,6 @@ MIT © [Trong Nguyen](https://github.com/user)
 
 **If this project helps you, consider giving it a ⭐**
 
-[Report Bug](https://github.com/user/zed-i18n/issues) · [Request Feature](https://github.com/user/zed-i18n/issues)
+[Report Bug](https://github.com/nguyenphutrong/intl-lens/issues) · [Request Feature](https://github.com/nguyenphutrong/intl-lens/issues)
 
 </div>

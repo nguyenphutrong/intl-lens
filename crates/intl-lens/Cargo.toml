@@ -1,12 +1,12 @@
 [package]
-name = "i18n-lsp"
+name = "intl-lens"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [[bin]]
-name = "i18n-lsp"
+name = "intl-lens"
 path = "src/main.rs"
 
 [dependencies]

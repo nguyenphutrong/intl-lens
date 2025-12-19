@@ -1,10 +1,10 @@
 use zed_extension_api::{self as zed, LanguageServerId, Result, Worktree};
 
-struct I18nExtension {
+struct IntlLensExtension {
     cached_binary_path: Option<String>,
 }
 
-impl zed::Extension for I18nExtension {
+impl zed::Extension for IntlLensExtension {
     fn new() -> Self {
         Self {
             cached_binary_path: None,
@@ -26,7 +26,7 @@ impl zed::Extension for I18nExtension {
     }
 }
 
-impl I18nExtension {
+impl IntlLensExtension {
     fn get_server_binary_path(
         &mut self,
         language_server_id: &LanguageServerId,
@@ -38,7 +38,7 @@ impl I18nExtension {
             }
         }
 
-        if let Some(path) = worktree.which("i18n-lsp") {
+        if let Some(path) = worktree.which("intl-lens") {
             self.cached_binary_path = Some(path.clone());
             return Ok(path);
         }
@@ -49,7 +49,7 @@ impl I18nExtension {
         );
 
         let release = zed::latest_github_release(
-            "user/zed-i18n",
+            "nguyenphutrong/intl-lens",
             zed::GithubReleaseOptions {
                 require_assets: true,
                 pre_release: false,
@@ -58,7 +58,7 @@ impl I18nExtension {
 
         let (platform, arch) = zed::current_platform();
         let asset_name = format!(
-            "i18n-lsp-{}-{}.{}",
+            "intl-lens-{}-{}.{}",
             match arch {
                 zed::Architecture::Aarch64 => "aarch64",
                 zed::Architecture::X8664 => "x86_64",
@@ -81,9 +81,9 @@ impl I18nExtension {
             .find(|asset| asset.name == asset_name)
             .ok_or_else(|| format!("no asset found matching {asset_name}"))?;
 
-        let version_dir = format!("i18n-lsp-{}", release.version);
+        let version_dir = format!("intl-lens-{}", release.version);
         let binary_path = format!(
-            "{version_dir}/i18n-lsp{}",
+            "{version_dir}/intl-lens{}",
             match platform {
                 zed::Os::Windows => ".exe",
                 _ => "",
@@ -111,4 +111,4 @@ impl I18nExtension {
     }
 }
 
-zed::register_extension!(I18nExtension);
+zed::register_extension!(IntlLensExtension);
