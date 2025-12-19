@@ -448,7 +448,6 @@ impl LanguageServer for I18nBackend {
 
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
         let uri = params.text_document.uri;
-        let range = params.range;
         
         let docs = self.documents.read().await;
         let Some(doc) = docs.get(&uri.to_string()) else {
@@ -469,11 +468,6 @@ impl LanguageServer for I18nBackend {
         let mut hints = Vec::new();
         
         for found_key in found_keys {
-            let key_line = found_key.line as u32;
-            if key_line < range.start.line || key_line > range.end.line {
-                continue;
-            }
-            
             if let Some(translation) = store.get_translation(&found_key.key, &config.source_locale) {
                 let display_text = if translation.len() > 30 {
                     format!("{}...", &translation[..27])
@@ -483,15 +477,15 @@ impl LanguageServer for I18nBackend {
                 
                 hints.push(InlayHint {
                     position: Position {
-                        line: key_line,
-                        character: (found_key.end_char + 2) as u32,
+                        line: found_key.line as u32,
+                        character: (found_key.end_char + 1) as u32,
                     },
-                    label: InlayHintLabel::String(display_text),
+                    label: InlayHintLabel::String(format!("= {}", display_text)),
                     kind: Some(InlayHintKind::PARAMETER),
                     text_edits: None,
                     tooltip: None,
                     padding_left: Some(true),
-                    padding_right: Some(true),
+                    padding_right: None,
                     data: None,
                 });
             }
