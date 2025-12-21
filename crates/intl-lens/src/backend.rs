@@ -382,7 +382,7 @@ impl I18nBackend {
         let mut patterns = Vec::new();
 
         for locale_path in locale_paths {
-            let trimmed = locale_path.trim_end_matches(&['/', '\\']);
+            let trimmed = locale_path.trim_end_matches(['/', '\\']);
             if trimmed.is_empty() {
                 continue;
             }
@@ -467,7 +467,7 @@ impl I18nBackend {
         }
 
         for locale_path in locale_paths {
-            let trimmed = locale_path.trim_end_matches(&['/', '\\']);
+            let trimmed = locale_path.trim_end_matches(['/', '\\']);
             if trimmed.is_empty() {
                 continue;
             }
