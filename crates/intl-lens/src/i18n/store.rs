@@ -44,6 +44,7 @@ impl TranslationStore {
     fn scan_directory(&self, dir: &Path) {
         let json_glob = Glob::new("*.json").unwrap().compile_matcher();
         let yaml_glob = Glob::new("*.{yaml,yml}").unwrap().compile_matcher();
+        let php_glob = Glob::new("*.php").unwrap().compile_matcher();
 
         for entry in WalkDir::new(dir)
             .max_depth(3)
@@ -53,7 +54,11 @@ impl TranslationStore {
             let path = entry.path();
             let file_name = path.file_name().unwrap_or_default();
 
-            if path.is_file() && (json_glob.is_match(file_name) || yaml_glob.is_match(file_name)) {
+            if path.is_file()
+                && (json_glob.is_match(file_name)
+                    || yaml_glob.is_match(file_name)
+                    || php_glob.is_match(file_name))
+            {
                 if let Some(locale) = self.extract_locale_from_path(path) {
                     self.load_translation_file(path, &locale);
                 }
@@ -83,10 +88,23 @@ impl TranslationStore {
         match TranslationParser::parse_file(path) {
             Ok(translations) => {
                 let mut locale_map = self.translations.entry(locale.to_string()).or_default();
+                let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                let prefix = if extension == "php" && !file_stem.is_empty() && !is_locale_code(file_stem)
+                {
+                    Some(file_stem)
+                } else {
+                    None
+                };
 
                 for (key, value) in translations {
+                    let full_key = match prefix {
+                        Some(prefix) => format!("{}.{}", prefix, key),
+                        None => key,
+                    };
+
                     locale_map.insert(
-                        key,
+                        full_key,
                         TranslationEntry {
                             value,
                             file_path: path.to_path_buf(),

@@ -1,6 +1,8 @@
+use std::collections::HashSet;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,7 +54,20 @@ impl I18nConfig {
 
         for config_path in config_paths {
             if let Ok(content) = std::fs::read_to_string(&config_path) {
-                if let Ok(config) = serde_json::from_str::<I18nConfig>(&content) {
+                let raw_config = serde_json::from_str::<Value>(&content).ok();
+
+                if let Ok(mut config) = serde_json::from_str::<I18nConfig>(&content) {
+                    let has_locale_paths = raw_config
+                        .as_ref()
+                        .and_then(|value| value.as_object())
+                        .is_some_and(|object| {
+                            object.contains_key("localePaths") || object.contains_key("locale_paths")
+                        });
+
+                    if !has_locale_paths {
+                        config.add_detected_locale_paths(root);
+                    }
+
                     tracing::info!("Loaded config from {:?}", config_path);
                     return config;
                 }
@@ -60,7 +75,23 @@ impl I18nConfig {
         }
 
         tracing::info!("Using default config");
-        Self::default()
+        let mut config = Self::default();
+        config.add_detected_locale_paths(root);
+        config
+    }
+
+    fn add_detected_locale_paths(&mut self, root: &Path) {
+        let detected_paths = detect_framework_locale_paths(root);
+        if detected_paths.is_empty() {
+            return;
+        }
+
+        let mut existing: HashSet<String> = self.locale_paths.iter().cloned().collect();
+        for path in detected_paths {
+            if existing.insert(path.clone()) {
+                self.locale_paths.push(path);
+            }
+        }
     }
 }
 
@@ -93,5 +124,66 @@ fn default_function_patterns() -> Vec<String> {
         r#"translate(?:Service)?\.(?:instant|get|stream)\s*\(\s*["']([^"']+)["']"#.to_string(),
         r#"transloco(?:Service)?\.(?:translate|selectTranslate)\s*\(\s*["']([^"']+)["']"#.to_string(),
         r#"["']([^"']+)["']\s*\|\s*(?:translate|transloco)\b"#.to_string(),
+        r#"__\s*\(\s*["']([^"']+)["']"#.to_string(),
+        r#"trans(?:_choice)?\s*\(\s*["']([^"']+)["']"#.to_string(),
+        r#"Lang::(?:get|choice)\s*\(\s*["']([^"']+)["']"#.to_string(),
+        r#"@lang\s*\(\s*["']([^"']+)["']"#.to_string(),
+        r#"@choice\s*\(\s*["']([^"']+)["']"#.to_string(),
     ]
+}
+
+fn detect_framework_locale_paths(root: &Path) -> Vec<String> {
+    let mut paths = Vec::new();
+
+    if is_angular_project(root) {
+        paths.push("src/assets/i18n".to_string());
+    }
+
+    if is_laravel_project(root) {
+        paths.push("resources/lang".to_string());
+        paths.push("lang".to_string());
+    }
+
+    paths
+        .into_iter()
+        .filter(|path| root.join(path).exists())
+        .collect()
+}
+
+fn is_angular_project(root: &Path) -> bool {
+    let package_json = root.join("package.json");
+    let Some(value) = read_json(&package_json) else {
+        return false;
+    };
+
+    json_has_dependency(&value, "@angular/core", &["dependencies", "devDependencies"])
+        || json_has_dependency(&value, "@angular/cli", &["dependencies", "devDependencies"])
+}
+
+fn is_laravel_project(root: &Path) -> bool {
+    let composer_json = root.join("composer.json");
+    let Some(value) = read_json(&composer_json) else {
+        return false;
+    };
+
+    json_has_dependency(&value, "laravel/framework", &["require", "require-dev"])
+        || json_has_name(&value, "laravel/laravel")
+}
+
+fn read_json(path: &Path) -> Option<Value> {
+    let content = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str::<Value>(&content).ok()
+}
+
+fn json_has_dependency(value: &Value, dependency: &str, sections: &[&str]) -> bool {
+    sections.iter().any(|section| {
+        value
+            .get(*section)
+            .and_then(|deps| deps.as_object())
+            .is_some_and(|deps| deps.contains_key(dependency))
+    })
+}
+
+fn json_has_name(value: &Value, name: &str) -> bool {
+    value.get("name").and_then(|v| v.as_str()) == Some(name)
 }

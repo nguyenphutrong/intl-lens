@@ -122,6 +122,16 @@ impl I18nBackend {
                 scheme: None,
                 pattern: None,
             },
+            DocumentFilter {
+                language: Some("php".to_string()),
+                scheme: None,
+                pattern: None,
+            },
+            DocumentFilter {
+                language: Some("blade".to_string()),
+                scheme: None,
+                pattern: None,
+            },
         ]);
 
         let register_options = InlayHintRegistrationOptions {
