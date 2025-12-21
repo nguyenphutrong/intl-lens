@@ -22,11 +22,11 @@ Stop guessing what `t("common.buttons.submit")` means.<br/>
 | Feature | Description |
 |---------|-------------|
 | 🔍 **Inline Hints** | See translation values right next to your i18n keys |
-| 💬 **Hover Preview** | View all locale translations in a beautiful popup |
+| 💬 **Hover Preview** | View all locale translations with quick jump links |
 | ⚠️ **Missing Key Detection** | Get warnings for undefined translation keys |
 | 🌐 **Incomplete Coverage** | Know which locales are missing translations |
 | ⚡ **Autocomplete** | Type `t("` and get instant key suggestions with previews |
-| 🎯 **Go to Definition** | Jump directly to the translation in your locale file |
+| 🎯 **Go to Definition** | Jump directly to the translation in any locale file |
 | 🔄 **Auto Reload** | Changes to translation files are picked up automatically |
 
 ## 🎬 Demo
@@ -43,11 +43,15 @@ Stop guessing what `t("common.buttons.submit")` means.<br/>
 ```
 🌍 common.actions.submit
 
-en: Submit
-vi: Gửi
-ja: 送信
+en: Submit (↗)
+vi: Gửi (↗)
+ja: 送信 (↗)
 ---
 ```
+
+![Hover Preview](screenshots/screenshot-1.png)
+
+![Autocomplete](screenshots/screenshot-2-auto-compelete.png)
 
 ## 🚀 Installation
 
@@ -101,11 +105,23 @@ Works out of the box with:
 | **i18next** | `t("key")` `i18n.t("key")` |
 | **vue-i18n** | `$t("key")` `t("key")` |
 | **react-intl** | `formatMessage({ id: "key" })` |
+| **ngx-translate (Angular)** | `translateService.instant("key")` `translateService.get("key")` `| translate` |
+| **Transloco (Angular)** | `translocoService.translate("key")` `selectTranslate("key")` `| transloco` |
+| **Laravel** | `__("key")` `trans("key")` `Lang::get("key")` `@lang("key")` |
 | **Custom** | Configure your own patterns! |
+
+## 🧩 Supported Languages
+
+- TypeScript / TSX
+- JavaScript / JSX
+- HTML
+- Angular templates
+- PHP
+- Blade
 
 ## ⚙️ Configuration
 
-Create `.i18n-ally.json` in your project root:
+Create `.zed/i18n.json` in your project root:
 
 ```json
 {
@@ -147,6 +163,7 @@ Create `.i18n-ally.json` in your project root:
 |--------|------------|
 | JSON | `.json` |
 | YAML | `.yaml` `.yml` |
+| PHP | `.php` |
 
 **Nested structure:**
 ```
