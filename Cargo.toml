@@ -26,13 +26,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Utils
 anyhow = "1"
-thiserror = "1"
 dashmap = "6"
 regex = "1"
 globset = "0.4"
 walkdir = "2"
-notify = "6"
-ropey = "1"
 
 # Zed extension
 zed_extension_api = "0.7"

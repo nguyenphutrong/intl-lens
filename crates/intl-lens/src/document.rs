@@ -1,4 +1,3 @@
-use ropey::Rope;
 use std::collections::HashMap;
 
 pub struct DocumentStore {
@@ -6,10 +5,7 @@ pub struct DocumentStore {
 }
 
 pub struct Document {
-    /// URI of the document - kept for debugging and future use
-    #[allow(dead_code)]
-    pub uri: String,
-    pub content: Rope,
+    pub content: String,
     pub version: i32,
 }
 
@@ -21,19 +17,12 @@ impl DocumentStore {
     }
 
     pub fn open(&mut self, uri: String, content: String, version: i32) {
-        self.documents.insert(
-            uri.clone(),
-            Document {
-                uri,
-                content: Rope::from_str(&content),
-                version,
-            },
-        );
+        self.documents.insert(uri, Document { content, version });
     }
 
     pub fn update(&mut self, uri: &str, content: String, version: i32) {
         if let Some(doc) = self.documents.get_mut(uri) {
-            doc.content = Rope::from_str(&content);
+            doc.content = content;
             doc.version = version;
         }
     }

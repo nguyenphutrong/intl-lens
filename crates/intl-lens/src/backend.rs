@@ -3,24 +3,22 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-/// Safely truncates a string to a maximum number of characters (not bytes).
-/// Handles UTF-8 multibyte characters correctly (e.g., Vietnamese, Japanese).
-fn truncate_string(s: &str, max_chars: usize) -> String {
-    let chars: Vec<char> = s.chars().collect();
-    if chars.len() > max_chars {
-        let truncated: String = chars[..max_chars.saturating_sub(3)].iter().collect();
-        format!("{}...", truncated)
-    } else {
-        s.to_string()
-    }
-}
-use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
+use tower_lsp::jsonrpc::Result;
 use tower_lsp::{Client, LanguageServer};
 
 use crate::config::I18nConfig;
 use crate::document::DocumentStore;
 use crate::i18n::{KeyFinder, TranslationStore};
+
+fn truncate_string(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+
+    let truncated: String = s.chars().take(max_chars.saturating_sub(3)).collect();
+    format!("{}...", truncated)
+}
 
 pub struct I18nBackend {
     client: Client,
@@ -29,6 +27,7 @@ pub struct I18nBackend {
     translation_store: Arc<RwLock<Option<TranslationStore>>>,
     key_finder: Arc<RwLock<KeyFinder>>,
     workspace_root: Arc<RwLock<Option<PathBuf>>>,
+    inlay_hint_dynamic_registration_supported: Arc<RwLock<bool>>,
 }
 
 impl I18nBackend {
@@ -40,6 +39,7 @@ impl I18nBackend {
             translation_store: Arc::new(RwLock::new(None)),
             key_finder: Arc::new(RwLock::new(KeyFinder::default())),
             workspace_root: Arc::new(RwLock::new(None)),
+            inlay_hint_dynamic_registration_supported: Arc::new(RwLock::new(false)),
         }
     }
 
@@ -76,6 +76,81 @@ impl I18nBackend {
         *self.translation_store.write().await = Some(store);
         *self.config.write().await = config;
         *self.workspace_root.write().await = Some(root);
+    }
+
+    async fn register_inlay_hint_capability(&self) {
+        let supports_dynamic = *self
+            .inlay_hint_dynamic_registration_supported
+            .read()
+            .await;
+
+        if !supports_dynamic {
+            tracing::debug!(
+                "Skipping inlay hint dynamic registration (dynamicRegistration=false)"
+            );
+            return;
+        }
+
+        let document_selector = Some(vec![
+            DocumentFilter {
+                language: Some("typescript".to_string()),
+                scheme: None,
+                pattern: None,
+            },
+            DocumentFilter {
+                language: Some("typescriptreact".to_string()),
+                scheme: None,
+                pattern: None,
+            },
+            DocumentFilter {
+                language: Some("javascript".to_string()),
+                scheme: None,
+                pattern: None,
+            },
+            DocumentFilter {
+                language: Some("javascriptreact".to_string()),
+                scheme: None,
+                pattern: None,
+            },
+        ]);
+
+        let register_options = InlayHintRegistrationOptions {
+            inlay_hint_options: InlayHintOptions {
+                resolve_provider: Some(false),
+                work_done_progress_options: Default::default(),
+            },
+            text_document_registration_options: TextDocumentRegistrationOptions {
+                document_selector,
+            },
+            static_registration_options: StaticRegistrationOptions {
+                id: Some("intl-lens-inlay-hint".to_string()),
+            },
+        };
+
+        let register_options = match serde_json::to_value(register_options) {
+            Ok(value) => value,
+            Err(err) => {
+                tracing::warn!(
+                    "Failed to serialize inlay hint registration options: {:?}",
+                    err
+                );
+                return;
+            }
+        };
+
+        let registration = Registration {
+            id: "intl-lens-inlay-hint".to_string(),
+            method: "textDocument/inlayHint".to_string(),
+            register_options: Some(register_options),
+        };
+
+        match self.client.register_capability(vec![registration]).await {
+            Ok(_) => tracing::info!("Registered inlay hint capability dynamically"),
+            Err(err) => tracing::warn!(
+                "Dynamic inlay hint registration failed: {:?}",
+                err
+            ),
+        }
     }
 
     async fn diagnose_document(&self, uri: &Url, content: &str) {
@@ -239,6 +314,23 @@ impl I18nBackend {
 impl LanguageServer for I18nBackend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         tracing::info!("i18n-lsp initialize called");
+        tracing::debug!("Client capabilities: {:?}", params.capabilities);
+
+        let inlay_hint_dynamic_registration_support = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_document| text_document.inlay_hint.as_ref())
+            .and_then(|inlay| inlay.dynamic_registration)
+            .unwrap_or(false);
+
+        *self.inlay_hint_dynamic_registration_supported.write().await =
+            inlay_hint_dynamic_registration_support;
+
+        tracing::info!(
+            "Client inlay hint dynamicRegistration: {}",
+            inlay_hint_dynamic_registration_support
+        );
 
         let root_path = params
             .workspace_folders
@@ -273,7 +365,12 @@ impl LanguageServer for I18nBackend {
                     ..Default::default()
                 }),
                 definition_provider: Some(OneOf::Left(true)),
-                inlay_hint_provider: Some(OneOf::Left(true)),
+                inlay_hint_provider: Some(OneOf::Right(InlayHintServerCapabilities::Options(
+                    InlayHintOptions {
+                        resolve_provider: Some(false),
+                        work_done_progress_options: Default::default(),
+                    },
+                ))),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -287,6 +384,7 @@ impl LanguageServer for I18nBackend {
         self.client
             .log_message(MessageType::INFO, "i18n-lsp server initialized")
             .await;
+        self.register_inlay_hint_capability().await;
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -391,16 +489,7 @@ impl LanguageServer for I18nBackend {
                 kind: MarkupKind::Markdown,
                 value: hover_content,
             }),
-            range: Some(Range {
-                start: Position {
-                    line: found_key.line as u32,
-                    character: found_key.start_char as u32,
-                },
-                end: Position {
-                    line: found_key.line as u32,
-                    character: found_key.end_char as u32,
-                },
-            }),
+            range: None,
         }))
     }
 
@@ -467,37 +556,69 @@ impl LanguageServer for I18nBackend {
 
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
         let uri = params.text_document.uri;
+        tracing::debug!(">>> inlay_hint: uri={}, range={:?}", uri, params.range);
+
+        let source_locale = self.config.read().await.source_locale.clone();
 
         let docs = self.documents.read().await;
         let Some(doc) = docs.get(uri.as_str()) else {
+            tracing::warn!("<<< inlay_hint: document NOT in store: {}", uri);
             return Ok(None);
         };
 
-        let content = doc.content.to_string();
+        let content = doc.content.as_str();
         let key_finder = self.key_finder.read().await;
-        let found_keys = key_finder.find_keys(&content);
+        let found_keys = key_finder.find_keys(content);
 
         let translation_store = self.translation_store.read().await;
-        let config = self.config.read().await;
-
         let Some(store) = translation_store.as_ref() else {
             return Ok(None);
         };
 
         let mut hints = Vec::new();
+        let request_range = params.range;
+        let request_is_empty = request_range.start == request_range.end;
+
+        let position_leq = |a: Position, b: Position| -> bool {
+            a.line < b.line || (a.line == b.line && a.character <= b.character)
+        };
+
+        let ranges_overlap = |start: Position, end: Position, range: &Range| -> bool {
+            position_leq(range.start, end) && position_leq(start, range.end)
+        };
 
         for found_key in found_keys {
-            if let Some(translation) = store.get_translation(&found_key.key, &config.source_locale)
-            {
+            let key_start = Position {
+                line: found_key.line as u32,
+                character: found_key.start_char as u32,
+            };
+            let key_end = Position {
+                line: found_key.line as u32,
+                character: found_key.end_char as u32,
+            };
+
+            if !request_is_empty && !ranges_overlap(key_start, key_end, &request_range) {
+                continue;
+            }
+
+            if let Some(translation) = store.get_translation(&found_key.key, &source_locale) {
                 let display_text = truncate_string(&translation, 30);
+
+                let mut hint_char = found_key.end_char;
+                if let Some(line) = content.lines().nth(found_key.line) {
+                    let line_bytes = line.as_bytes();
+                    if matches!(line_bytes.get(hint_char), Some(b'\'') | Some(b'"')) {
+                        hint_char += 1;
+                    }
+                }
 
                 hints.push(InlayHint {
                     position: Position {
                         line: found_key.line as u32,
-                        character: (found_key.end_char + 1) as u32,
+                        character: hint_char as u32,
                     },
                     label: InlayHintLabel::String(format!("= {}", display_text)),
-                    kind: Some(InlayHintKind::PARAMETER),
+                    kind: Some(InlayHintKind::TYPE),
                     text_edits: None,
                     tooltip: None,
                     padding_left: Some(true),
@@ -507,6 +628,7 @@ impl LanguageServer for I18nBackend {
             }
         }
 
+        tracing::debug!("<<< inlay_hint: returning {} hints", hints.len());
         Ok(Some(hints))
     }
 }

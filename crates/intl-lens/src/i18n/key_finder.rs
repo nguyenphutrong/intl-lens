@@ -3,10 +3,7 @@ use regex::Regex;
 #[derive(Debug, Clone)]
 pub struct FoundKey {
     pub key: String,
-    #[allow(dead_code)]
     pub start_offset: usize,
-    #[allow(dead_code)]
-    pub end_offset: usize,
     pub line: usize,
     pub start_char: usize,
     pub end_char: usize,
@@ -42,7 +39,6 @@ impl KeyFinder {
                     found_keys.push(FoundKey {
                         key,
                         start_offset,
-                        end_offset,
                         line,
                         start_char,
                         end_char,

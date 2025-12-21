@@ -12,7 +12,7 @@ use crate::backend::I18nBackend;
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::registry()
-        .with(EnvFilter::from_default_env().add_directive("i18n_lsp=debug".parse()?))
+        .with(EnvFilter::from_default_env().add_directive("intl_lens=debug".parse()?))
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .init();
 

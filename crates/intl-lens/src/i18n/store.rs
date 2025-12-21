@@ -9,26 +9,18 @@ use super::parser::TranslationParser;
 
 #[derive(Debug, Clone)]
 pub struct TranslationEntry {
-    #[allow(dead_code)]
-    pub key: String,
     pub value: String,
     pub file_path: PathBuf,
-    pub locale: String,
-    #[allow(dead_code)]
-    pub line: usize,
 }
 
 #[derive(Debug, Clone)]
 pub struct TranslationLocation {
     pub file_path: PathBuf,
-    #[allow(dead_code)]
-    pub locale: String,
     pub line: usize,
 }
 
 pub struct TranslationStore {
     translations: DashMap<String, HashMap<String, TranslationEntry>>,
-    locale_files: DashMap<String, Vec<PathBuf>>,
     workspace_root: PathBuf,
 }
 
@@ -36,7 +28,6 @@ impl TranslationStore {
     pub fn new(workspace_root: PathBuf) -> Self {
         Self {
             translations: DashMap::new(),
-            locale_files: DashMap::new(),
             workspace_root,
         }
     }
@@ -95,21 +86,13 @@ impl TranslationStore {
 
                 for (key, value) in translations {
                     locale_map.insert(
-                        key.clone(),
+                        key,
                         TranslationEntry {
-                            key,
                             value,
                             file_path: path.to_path_buf(),
-                            locale: locale.to_string(),
-                            line: 0,
                         },
                     );
                 }
-
-                self.locale_files
-                    .entry(locale.to_string())
-                    .or_default()
-                    .push(path.to_path_buf());
 
                 tracing::debug!(
                     "Loaded {} translations from {:?} for locale {}",
@@ -147,7 +130,6 @@ impl TranslationStore {
                 let line = Self::find_key_line_in_file(&e.file_path, key).unwrap_or(0);
                 TranslationLocation {
                     file_path: e.file_path.clone(),
-                    locale: e.locale.clone(),
                     line,
                 }
             })
@@ -209,12 +191,6 @@ impl TranslationStore {
             .collect()
     }
 
-    #[allow(dead_code)]
-    pub fn reload(&self, locale_paths: &[String]) {
-        self.translations.clear();
-        self.locale_files.clear();
-        self.scan_and_load(locale_paths);
-    }
 }
 
 fn is_locale_code(s: &str) -> bool {
