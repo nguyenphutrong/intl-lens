@@ -1,6 +1,6 @@
 id = "intl-lens"
 name = "Intl Lens"
-version = "0.1.0"
+version = "0.1.1"
 schema_version = 1
 authors = ["Trong Nguyen"]
 description = "Internationalization (i18n) support for Zed - inline translations, hover info, and diagnostics"
