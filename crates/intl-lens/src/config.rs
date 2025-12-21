@@ -90,5 +90,8 @@ fn default_function_patterns() -> Vec<String> {
         r#"useTranslation\s*\(\s*\)\s*.*?t\s*\(\s*["']([^"']+)["']"#.to_string(),
         r#"\$t\s*\(\s*["']([^"']+)["']"#.to_string(),
         r#"formatMessage\s*\(\s*\{\s*id:\s*["']([^"']+)["']"#.to_string(),
+        r#"translate(?:Service)?\.(?:instant|get|stream)\s*\(\s*["']([^"']+)["']"#.to_string(),
+        r#"transloco(?:Service)?\.(?:translate|selectTranslate)\s*\(\s*["']([^"']+)["']"#.to_string(),
+        r#"["']([^"']+)["']\s*\|\s*(?:translate|transloco)\b"#.to_string(),
     ]
 }

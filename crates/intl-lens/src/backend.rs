@@ -112,6 +112,16 @@ impl I18nBackend {
                 scheme: None,
                 pattern: None,
             },
+            DocumentFilter {
+                language: Some("html".to_string()),
+                scheme: None,
+                pattern: None,
+            },
+            DocumentFilter {
+                language: Some("angular".to_string()),
+                scheme: None,
+                pattern: None,
+            },
         ]);
 
         let register_options = InlayHintRegistrationOptions {
