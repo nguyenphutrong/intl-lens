@@ -273,7 +273,12 @@ fn is_vue_project(root: &Path) -> bool {
         &value,
         "@intlify/vue-i18n",
         &["dependencies", "devDependencies"],
-    ) || root.join("vue.config.js").exists()
+    ) || json_has_dependency(
+        &value,
+        "@nuxtjs/i18n",
+        &["dependencies", "devDependencies"],
+    )
+    || root.join("vue.config.js").exists()
         || root.join("vite.config.js").exists()
-        || root.join("vite.config.ts").exists()
+        || root.join("vite.config.ts").exists() || root.join("nuxt.config.js").exists()
 }
