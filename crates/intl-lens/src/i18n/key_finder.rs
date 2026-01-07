@@ -102,6 +102,9 @@ fn default_patterns() -> Vec<String> {
         r#"(?:^|[^\w.])t\s*\(\s*["']([^"']+)["']"#.to_string(),
         r#"i18n\.t\s*\(\s*["']([^"']+)["']"#.to_string(),
         r#"\$t\s*\(\s*["']([^"']+)["']"#.to_string(),
+        r#"\$tc\s*\(\s*["']([^"']+)["']"#.to_string(),
+        r#"\$te\s*\(\s*["']([^"']+)["']"#.to_string(),
+        r#"useI18n\s*\(\s*\)\s*.*?\.t\s*\(\s*["']([^"']+)["']"#.to_string(),
         r#"formatMessage\s*\(\s*\{\s*id:\s*["']([^"']+)["']"#.to_string(),
         r#"<Trans\s+i18nKey\s*=\s*["']([^"']+)["']"#.to_string(),
         // Flutter/Dart patterns - easy_localization
@@ -277,5 +280,41 @@ mod tests {
         let keys = finder.find_keys(content);
         assert_eq!(keys.len(), 1);
         assert_eq!(keys[0].key, "hello.world");
+    }
+
+    #[test]
+    fn test_find_vue_dollar_t() {
+        let finder = KeyFinder::default();
+        let content = r#"const msg = $t('common.greeting');"#;
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key, "common.greeting");
+    }
+
+    #[test]
+    fn test_find_vue_dollar_tc() {
+        let finder = KeyFinder::default();
+        let content = r#"const msg = $tc('messages.item', count);"#;
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key, "messages.item");
+    }
+
+    #[test]
+    fn test_find_vue_dollar_te() {
+        let finder = KeyFinder::default();
+        let content = r#"if ($te('key.exists')) { }"#;
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key, "key.exists");
+    }
+
+    #[test]
+    fn test_find_vue_composition_api() {
+        let finder = KeyFinder::default();
+        let content = r#"const { t } = useI18n(); const msg = t('welcome.message');"#;
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key, "welcome.message");
     }
 }

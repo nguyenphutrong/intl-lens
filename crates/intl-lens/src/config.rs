@@ -123,6 +123,9 @@ fn default_function_patterns() -> Vec<String> {
         r#"i18n\.t\s*\(\s*["']([^"']+)["']"#.to_string(),
         r#"useTranslation\s*\(\s*\)\s*.*?t\s*\(\s*["']([^"']+)["']"#.to_string(),
         r#"\$t\s*\(\s*["']([^"']+)["']"#.to_string(),
+        r#"\$tc\s*\(\s*["']([^"']+)["']"#.to_string(),
+        r#"\$te\s*\(\s*["']([^"']+)["']"#.to_string(),
+        r#"useI18n\s*\(\s*\)\s*.*?\.t\s*\(\s*["']([^"']+)["']"#.to_string(),
         r#"formatMessage\s*\(\s*\{\s*id:\s*["']([^"']+)["']"#.to_string(),
         // Angular patterns
         r#"translateService\.(?:instant|get|stream)\s*\(\s*["']([^"']+)["']"#.to_string(),
@@ -174,6 +177,14 @@ fn detect_framework_locale_paths(root: &Path) -> Vec<String> {
         paths.push("assets/translations".to_string());
         paths.push("assets/flutter_i18n".to_string());
         paths.push("assets/i18n".to_string());
+    }
+
+    if is_vue_project(root) {
+        paths.push("src/locales".to_string());
+        paths.push("src/i18n".to_string());
+        paths.push("locales".to_string());
+        paths.push("i18n".to_string());
+        paths.push("public/locales".to_string());
     }
 
     paths
@@ -242,4 +253,27 @@ fn parse_l10n_yaml(root: &Path) -> Option<String> {
     yaml.get("arb-dir")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
+}
+
+fn is_vue_project(root: &Path) -> bool {
+    let package_json = root.join("package.json");
+    let Some(value) = read_json(&package_json) else {
+        return false;
+    };
+
+    json_has_dependency(
+        &value,
+        "vue",
+        &["dependencies", "devDependencies"],
+    ) || json_has_dependency(
+        &value,
+        "vue-i18n",
+        &["dependencies", "devDependencies"],
+    ) || json_has_dependency(
+        &value,
+        "@intlify/vue-i18n",
+        &["dependencies", "devDependencies"],
+    ) || root.join("vue.config.js").exists()
+        || root.join("vite.config.js").exists()
+        || root.join("vite.config.ts").exists()
 }
