@@ -143,11 +143,6 @@ impl I18nBackend {
                 scheme: None,
                 pattern: None,
             },
-            DocumentFilter {
-                language: None,
-                scheme: None,
-                pattern: Some("**/*.vue".to_string()),
-            },
         ]);
 
         let register_options = InlayHintRegistrationOptions {
