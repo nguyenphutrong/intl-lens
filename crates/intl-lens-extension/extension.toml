@@ -2,6 +2,7 @@ id = "intl-lens"
 name = "Intl Lens"
 version = "0.1.2"
 schema_version = 1
+license = "MIT"
 authors = ["Trong Nguyen"]
 description = "Internationalization (i18n) support for Zed - inline translations, hover info, and diagnostics"
 repository = "https://github.com/nguyenphutrong/intl-lens"
