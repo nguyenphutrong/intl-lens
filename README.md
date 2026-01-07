@@ -123,6 +123,7 @@ Works out of the box with:
 - PHP
 - Blade
 - Dart (Flutter)
+- Vue.js
 
 ## ⚙️ Configuration
 
