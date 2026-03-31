@@ -127,14 +127,51 @@ Works out of the box with:
 
 ## ⚙️ Configuration
 
-Create `.zed/i18n.json` in your project root:
+Configure Intl Lens in `.zed/settings.json` under `extensions.intl-lens`:
 
-```json
+```jsonc
 {
-  "localePaths": ["src/locales", "public/locales"],
-  "sourceLocale": "en"
+  "extensions": {
+    "intl-lens": {
+      "localePaths": ["src/locales", "public/locales"],
+      "sourceLocale": "en"
+    }
+  }
 }
 ```
+
+Intl Lens reads its project overrides from `extensions.intl-lens` in user or project settings.
+The legacy `.zed/i18n.json` file is no longer used.
+If you already have an `.i18n-ally.json` or `i18n-ally.config.json`, Intl Lens will still read it as a base config and then apply `extensions.intl-lens` overrides on top.
+In Zed's Extension Settings UI, `localePaths` and `sourceLocale` can now be configured directly.
+
+User settings example:
+
+```jsonc
+{
+  "extensions": {
+    "intl-lens": {
+      "localePaths": ["src/locales", "public/locales"],
+      "sourceLocale": "en"
+    }
+  }
+}
+```
+
+Project settings example:
+
+```jsonc
+{
+  "extensions": {
+    "intl-lens": {
+      "localePaths": ["apps/admin/src/assets/locales"],
+      "sourceLocale": "vi"
+    }
+  }
+}
+```
+
+Set `sourceLocale` to an empty string or `localePaths` to an empty array to fall through to defaults or values from `.i18n-ally.json`.
 
 <details>
 <summary><strong>📋 All Options</strong></summary>

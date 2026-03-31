@@ -23,6 +23,13 @@ pub struct I18nConfig {
     pub function_patterns: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct I18nConfigOverrides {
+    pub locale_paths: Option<Vec<String>>,
+    pub source_locale: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum KeyStyle {
@@ -45,11 +52,10 @@ impl Default for I18nConfig {
 }
 
 impl I18nConfig {
-    pub fn load_from_workspace(root: &Path) -> Self {
+    pub fn effective_with_overrides(root: &Path, overrides: &I18nConfigOverrides) -> Self {
         let config_paths = [
             root.join(".i18n-ally.json"),
             root.join("i18n-ally.config.json"),
-            root.join(".zed/i18n.json"),
         ];
 
         for config_path in config_paths {
@@ -69,6 +75,7 @@ impl I18nConfig {
                         config.add_detected_locale_paths(root);
                     }
 
+                    config.apply_overrides(overrides);
                     tracing::info!("Loaded config from {:?}", config_path);
                     return config;
                 }
@@ -78,7 +85,25 @@ impl I18nConfig {
         tracing::info!("Using default config");
         let mut config = Self::default();
         config.add_detected_locale_paths(root);
+        config.apply_overrides(overrides);
         config
+    }
+
+    pub fn load_from_workspace_with_overrides(
+        root: &Path,
+        overrides: &I18nConfigOverrides,
+    ) -> Self {
+        Self::effective_with_overrides(root, overrides)
+    }
+
+    pub fn apply_overrides(&mut self, overrides: &I18nConfigOverrides) {
+        if let Some(locale_paths) = overrides.sanitized_locale_paths() {
+            self.locale_paths = locale_paths;
+        }
+
+        if let Some(source_locale) = overrides.sanitized_source_locale() {
+            self.source_locale = source_locale;
+        }
     }
 
     fn add_detected_locale_paths(&mut self, root: &Path) {
@@ -93,6 +118,29 @@ impl I18nConfig {
                 self.locale_paths.push(path);
             }
         }
+    }
+}
+
+impl I18nConfigOverrides {
+    pub fn sanitized_locale_paths(&self) -> Option<Vec<String>> {
+        self.locale_paths.as_ref().and_then(|paths| {
+            let sanitized: Vec<String> = paths
+                .iter()
+                .map(|path| path.trim())
+                .filter(|path| !path.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
+
+            (!sanitized.is_empty()).then_some(sanitized)
+        })
+    }
+
+    pub fn sanitized_source_locale(&self) -> Option<String> {
+        self.source_locale
+            .as_deref()
+            .map(str::trim)
+            .filter(|locale| !locale.is_empty())
+            .map(ToOwned::to_owned)
     }
 }
 
@@ -273,4 +321,51 @@ fn is_vue_project(root: &Path) -> bool {
         || root.join("vite.config.js").exists()
         || root.join("vite.config.ts").exists()
         || root.join("nuxt.config.js").exists()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_effective_config_applies_overrides_over_defaults() {
+        let dir = tempdir().unwrap();
+        let overrides = I18nConfigOverrides {
+            locale_paths: Some(vec!["apps/admin/src/assets/locales".into()]),
+            source_locale: Some("vi".into()),
+        };
+
+        let config = I18nConfig::effective_with_overrides(dir.path(), &overrides);
+
+        assert_eq!(
+            config.locale_paths,
+            vec!["apps/admin/src/assets/locales".to_string()]
+        );
+        assert_eq!(config.source_locale, "vi".to_string());
+    }
+
+    #[test]
+    fn test_load_from_workspace_with_overrides_matches_effective_config() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(".i18n-ally.json"),
+            r#"{
+                "localePaths": ["src/locales"],
+                "sourceLocale": "en"
+            }"#,
+        )
+        .unwrap();
+
+        let overrides = I18nConfigOverrides {
+            locale_paths: Some(vec!["apps/admin/src/assets/locales".into()]),
+            source_locale: Some("vi".into()),
+        };
+
+        let config = I18nConfig::load_from_workspace_with_overrides(dir.path(), &overrides);
+        let effective = I18nConfig::effective_with_overrides(dir.path(), &overrides);
+
+        assert_eq!(config.locale_paths, effective.locale_paths);
+        assert_eq!(config.source_locale, effective.source_locale);
+    }
 }

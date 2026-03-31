@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 authors = ["Trong Nguyen"]
@@ -32,4 +32,4 @@ globset = "0.4"
 walkdir = "2"
 
 # Zed extension
-zed_extension_api = "0.7"
+zed_extension_api = { path = "../zed/crates/extension_api" }

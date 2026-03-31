@@ -1,6 +1,6 @@
 id = "intl-lens"
 name = "Intl Lens"
-version = "0.1.4"
+version = "0.2.0"
 schema_version = 1
 license = "MIT"
 authors = ["Trong Nguyen"]
