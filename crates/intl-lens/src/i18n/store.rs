@@ -277,3 +277,43 @@ fn extract_locale_from_arb_filename(file_stem: &str) -> Option<String> {
 
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_scan_and_load_relative_locale_path_finds_flat_keys() {
+        let dir = tempdir().unwrap();
+        let locale_dir = dir.path().join("apps/admin/src/assets/locales");
+        std::fs::create_dir_all(&locale_dir).unwrap();
+        std::fs::write(
+            locale_dir.join("en.json"),
+            r#"{
+                "mycard_page": "Prepaid Card Website Settings"
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            locale_dir.join("vi.json"),
+            r#"{
+                "mycard_page": "Thiết lập web quản lý thẻ trả trước"
+            }"#,
+        )
+        .unwrap();
+
+        let store = TranslationStore::new(dir.path().to_path_buf());
+        store.scan_and_load(&["apps/admin/src/assets/locales".to_string()]);
+
+        assert!(store.key_exists("mycard_page"));
+        assert_eq!(
+            store.get_translation("mycard_page", "en"),
+            Some("Prepaid Card Website Settings".to_string())
+        );
+        assert_eq!(
+            store.get_translation("mycard_page", "vi"),
+            Some("Thiết lập web quản lý thẻ trả trước".to_string())
+        );
+    }
+}

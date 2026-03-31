@@ -34,6 +34,13 @@ impl DocumentStore {
     pub fn get(&self, uri: &str) -> Option<&Document> {
         self.documents.get(uri)
     }
+
+    pub fn snapshot(&self) -> Vec<(String, String)> {
+        self.documents
+            .iter()
+            .map(|(uri, document)| (uri.clone(), document.content.clone()))
+            .collect()
+    }
 }
 
 impl Default for DocumentStore {

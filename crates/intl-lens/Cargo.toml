@@ -22,3 +22,6 @@ dashmap.workspace = true
 regex.workspace = true
 globset.workspace = true
 walkdir.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

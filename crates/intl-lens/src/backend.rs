@@ -7,7 +7,7 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use crate::config::I18nConfig;
+use crate::config::{I18nConfig, I18nConfigOverrides};
 use crate::document::DocumentStore;
 use crate::i18n::{KeyFinder, TranslationStore};
 
@@ -49,15 +49,23 @@ impl I18nBackend {
         }
     }
 
-    async fn initialize_workspace(&self, root: PathBuf) {
+    async fn initialize_workspace(&self, root: PathBuf, overrides: I18nConfigOverrides) {
         tracing::info!("Initializing workspace at {:?}", root);
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!(
+                    "intl-lens initialize: root={:?}, overrides={:?}",
+                    root, overrides
+                ),
+            )
+            .await;
+        let config = I18nConfig::load_from_workspace_with_overrides(&root, &overrides);
+        self.apply_runtime_config(root, config).await;
+    }
 
-        let config = I18nConfig::load_from_workspace(&root);
+    async fn apply_runtime_config(&self, root: PathBuf, config: I18nConfig) {
         tracing::info!("Config loaded, locale_paths: {:?}", config.locale_paths);
-
-        let key_finder = KeyFinder::new(&config.function_patterns);
-        *self.key_finder.write().await = key_finder;
-
         let store = TranslationStore::new(root.clone());
         store.scan_and_load(&config.locale_paths);
 
@@ -71,17 +79,46 @@ impl I18nBackend {
             .log_message(
                 MessageType::INFO,
                 format!(
-                    "i18n-lsp initialized: {} locales, {} keys in {:?}",
+                    "intl-lens config applied: root={:?}, locale_paths={:?}, source_locale={}, locales={}, keys={}",
+                    root,
+                    config.locale_paths,
+                    config.source_locale,
                     locales.len(),
                     keys.len(),
-                    root
                 ),
             )
             .await;
 
+        let key_finder = KeyFinder::new(&config.function_patterns);
+        *self.key_finder.write().await = key_finder;
         *self.translation_store.write().await = Some(store);
         *self.config.write().await = config;
         *self.workspace_root.write().await = Some(root);
+        self.rediagnose_open_documents().await;
+        self.refresh_inlay_hints().await;
+    }
+
+    async fn apply_settings_overrides(&self, overrides: I18nConfigOverrides) {
+        let Some(root) = self.workspace_root.read().await.clone() else {
+            tracing::warn!("Ignoring configuration update without a workspace root");
+            return;
+        };
+
+        let previous_config = self.config.read().await.clone();
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!(
+                    "intl-lens configuration update: root={:?}, previous_locale_paths={:?}, previous_source_locale={}, overrides={:?}",
+                    root,
+                    previous_config.locale_paths,
+                    previous_config.source_locale,
+                    overrides
+                ),
+            )
+            .await;
+        let config = I18nConfig::load_from_workspace_with_overrides(&root, &overrides);
+        self.apply_runtime_config(root, config).await;
     }
 
     async fn register_inlay_hint_capability(&self) {
@@ -249,9 +286,21 @@ impl I18nBackend {
         };
 
         let mut diagnostics = Vec::new();
+        let mut missing_translation_logs = Vec::new();
+        let workspace_root = self.workspace_root.read().await.clone();
+        let locale_paths = self.config.read().await.locale_paths.clone();
 
         for found_key in found_keys {
             if !store.key_exists(&found_key.key) {
+                let locales = store.get_locales();
+                missing_translation_logs.push(format!(
+                    "intl-lens missing-translation: key={}, root={:?}, locale_paths={:?}, locales_loaded={}, key_exists_any={}",
+                    found_key.key,
+                    workspace_root,
+                    locale_paths,
+                    locales.len(),
+                    store.key_exists(&found_key.key),
+                ));
                 diagnostics.push(Diagnostic {
                     range: Range {
                         start: Position {
@@ -295,6 +344,12 @@ impl I18nBackend {
                     });
                 }
             }
+        }
+
+        drop(translation_store);
+
+        for message in missing_translation_logs {
+            self.client.log_message(MessageType::INFO, message).await;
         }
 
         diagnostics
@@ -541,6 +596,7 @@ impl I18nBackend {
             .await;
 
         *self.translation_store.write().await = Some(store);
+        self.rediagnose_open_documents().await;
         self.refresh_inlay_hints().await;
     }
 
@@ -548,6 +604,31 @@ impl I18nBackend {
         if *self.inlay_hint_refresh_supported.read().await {
             if let Err(err) = self.client.inlay_hint_refresh().await {
                 tracing::warn!("Inlay hint refresh failed: {:?}", err);
+            }
+        }
+    }
+
+    async fn rediagnose_open_documents(&self) {
+        let documents = { self.documents.read().await.snapshot() };
+        for (uri, content) in documents {
+            let Ok(parsed_uri) = Url::parse(&uri) else {
+                tracing::warn!("Skipping diagnostics refresh for invalid URI: {}", uri);
+                continue;
+            };
+
+            self.diagnose_document(&parsed_uri, &content).await;
+        }
+    }
+
+    fn parse_config_overrides(
+        value: serde_json::Value,
+        context: &str,
+    ) -> Option<I18nConfigOverrides> {
+        match serde_json::from_value::<I18nConfigOverrides>(value) {
+            Ok(overrides) => Some(overrides),
+            Err(err) => {
+                tracing::warn!("Ignoring invalid {}: {:?}", context, err);
+                None
             }
         }
     }
@@ -680,8 +761,14 @@ impl LanguageServer for I18nBackend {
                     .and_then(|uri| uri.to_file_path().ok())
             });
 
+        let initialization_overrides = params
+            .initialization_options
+            .and_then(|value| Self::parse_config_overrides(value, "initialization options"))
+            .unwrap_or_default();
+
         if let Some(root) = root_path {
-            self.initialize_workspace(root).await;
+            self.initialize_workspace(root, initialization_overrides)
+                .await;
         } else {
             tracing::warn!("No workspace root found in initialize params");
         }
@@ -749,6 +836,16 @@ impl LanguageServer for I18nBackend {
             tracing::info!("Translation files changed, reloading...");
             self.reload_translations().await;
         }
+    }
+
+    async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
+        let Some(overrides) =
+            Self::parse_config_overrides(params.settings, "workspace configuration")
+        else {
+            return;
+        };
+
+        self.apply_settings_overrides(overrides).await;
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
