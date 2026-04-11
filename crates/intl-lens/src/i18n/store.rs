@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use dashmap::DashMap;
 use globset::Glob;
+use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 use super::parser::TranslationParser;
@@ -13,7 +14,7 @@ pub struct TranslationEntry {
     pub file_path: PathBuf,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranslationLocation {
     pub file_path: PathBuf,
     pub line: usize,
