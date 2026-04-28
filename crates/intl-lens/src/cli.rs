@@ -113,7 +113,7 @@ async fn run_audit(
 
     pb.set_message("Scanning translation files...");
     let store = TranslationStore::new(workspace.clone());
-    store.scan_and_load(&config.locale_paths);
+    store.scan_and_load_with_config(&config);
 
     pb.set_message("Scanning codebase...");
     let mut result = AuditResult::new(workspace.clone(), config, store);
@@ -179,7 +179,7 @@ async fn run_check(
 
     // Load translations to check existence
     let store = TranslationStore::new(workspace.clone());
-    store.scan_and_load(&config.locale_paths);
+    store.scan_and_load_with_config(&config);
 
     let mut missing = Vec::new();
     let mut found = Vec::new();

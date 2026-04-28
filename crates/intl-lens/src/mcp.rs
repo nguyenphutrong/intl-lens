@@ -435,7 +435,7 @@ impl McpServer {
     fn load_store(&self, workspace: &Path) -> (I18nConfig, TranslationStore) {
         let config = I18nConfig::load_from_workspace(workspace);
         let store = TranslationStore::new(workspace.to_path_buf());
-        store.scan_and_load(&config.locale_paths);
+        store.scan_and_load_with_config(&config);
         (config, store)
     }
 }

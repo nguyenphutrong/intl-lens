@@ -132,7 +132,8 @@ Create `.zed/i18n.json` in your project root:
 ```json
 {
   "localePaths": ["src/locales", "public/locales"],
-  "sourceLocale": "en"
+  "sourceLocale": "en",
+  "namespaceEnabled": true
 }
 ```
 
@@ -144,6 +145,7 @@ Create `.zed/i18n.json` in your project root:
 | `localePaths` | `string[]` | `["locales", "i18n", ...]` | Where to find translation files |
 | `sourceLocale` | `string` | `"en"` | Your primary language |
 | `keyStyle` | `"nested" \| "flat"` | `"auto"` | JSON structure style |
+| `namespaceEnabled` | `boolean` | `false` | Prefix keys with the relative file path after the locale segment, e.g. `en/action.json -> action.*` |
 | `functionPatterns` | `string[]` | See below | Custom regex patterns |
 
 </details>

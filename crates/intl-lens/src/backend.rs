@@ -59,7 +59,7 @@ impl I18nBackend {
         *self.key_finder.write().await = key_finder;
 
         let store = TranslationStore::new(root.clone());
-        store.scan_and_load(&config.locale_paths);
+        store.scan_and_load_with_config(&config);
 
         let locales = store.get_locales();
         let keys = store.get_all_keys();
@@ -517,14 +517,14 @@ impl I18nBackend {
 
     async fn reload_translations(&self) {
         let workspace_root = { self.workspace_root.read().await.clone() };
-        let locale_paths = { self.config.read().await.locale_paths.clone() };
+        let config = { self.config.read().await.clone() };
 
         let Some(root) = workspace_root.as_ref() else {
             return;
         };
 
         let store = TranslationStore::new(root.clone());
-        store.scan_and_load(&locale_paths);
+        store.scan_and_load_with_config(&config);
 
         let locales = store.get_locales();
         let keys = store.get_all_keys();
