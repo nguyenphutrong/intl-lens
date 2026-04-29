@@ -2,14 +2,14 @@
 
 # 🔍 Intl Lens
 
-**i18n support for Zed Editor - see translations inline.**
+**i18n support for Zed Editor - see translations via code lens.**
 
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Zed](https://img.shields.io/badge/zed-extension-purple.svg)](https://zed.dev)
 
 Stop guessing what `t("common.buttons.submit")` means.<br/>
-**See translations inline. Catch missing keys instantly. Ship with confidence.**
+**See translations via code lens. Catch missing keys instantly. Ship with confidence.**
 
 [Features](#-features) · [Install](#-installation) · [Configure](#-configuration) · [Contribute](#-contributing)
 
@@ -21,7 +21,7 @@ Stop guessing what `t("common.buttons.submit")` means.<br/>
 
 | Feature | Description |
 |---------|-------------|
-| 🔍 **Inline Hints** | See translation values right next to your i18n keys |
+| 🔍 **Code Lens** | See translation values right next to your i18n keys |
 | 💬 **Hover Preview** | View all locale translations with quick jump links |
 | ⚠️ **Missing Key Detection** | Get warnings for undefined translation keys |
 | 🌐 **Incomplete Coverage** | Know which locales are missing translations |

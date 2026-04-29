@@ -27,8 +27,6 @@ pub struct I18nBackend {
     translation_store: Arc<RwLock<Option<TranslationStore>>>,
     key_finder: Arc<RwLock<KeyFinder>>,
     workspace_root: Arc<RwLock<Option<PathBuf>>>,
-    inlay_hint_dynamic_registration_supported: Arc<RwLock<bool>>,
-    inlay_hint_refresh_supported: Arc<RwLock<bool>>,
     watched_files_dynamic_registration_supported: Arc<RwLock<bool>>,
     watched_files_relative_pattern_supported: Arc<RwLock<bool>>,
 }
@@ -42,8 +40,6 @@ impl I18nBackend {
             translation_store: Arc::new(RwLock::new(None)),
             key_finder: Arc::new(RwLock::new(KeyFinder::default())),
             workspace_root: Arc::new(RwLock::new(None)),
-            inlay_hint_dynamic_registration_supported: Arc::new(RwLock::new(false)),
-            inlay_hint_refresh_supported: Arc::new(RwLock::new(false)),
             watched_files_dynamic_registration_supported: Arc::new(RwLock::new(false)),
             watched_files_relative_pattern_supported: Arc::new(RwLock::new(false)),
         }
@@ -82,103 +78,6 @@ impl I18nBackend {
         *self.translation_store.write().await = Some(store);
         *self.config.write().await = config;
         *self.workspace_root.write().await = Some(root);
-    }
-
-    async fn register_inlay_hint_capability(&self) {
-        let supports_dynamic = *self.inlay_hint_dynamic_registration_supported.read().await;
-
-        if !supports_dynamic {
-            tracing::debug!("Skipping inlay hint dynamic registration (dynamicRegistration=false)");
-            return;
-        }
-
-        let document_selector = Some(vec![
-            DocumentFilter {
-                language: Some("typescript".to_string()),
-                scheme: None,
-                pattern: None,
-            },
-            DocumentFilter {
-                language: Some("typescriptreact".to_string()),
-                scheme: None,
-                pattern: None,
-            },
-            DocumentFilter {
-                language: Some("javascript".to_string()),
-                scheme: None,
-                pattern: None,
-            },
-            DocumentFilter {
-                language: Some("javascriptreact".to_string()),
-                scheme: None,
-                pattern: None,
-            },
-            DocumentFilter {
-                language: Some("html".to_string()),
-                scheme: None,
-                pattern: None,
-            },
-            DocumentFilter {
-                language: Some("angular".to_string()),
-                scheme: None,
-                pattern: None,
-            },
-            DocumentFilter {
-                language: Some("php".to_string()),
-                scheme: None,
-                pattern: None,
-            },
-            DocumentFilter {
-                language: Some("blade".to_string()),
-                scheme: None,
-                pattern: None,
-            },
-            DocumentFilter {
-                language: Some("dart".to_string()),
-                scheme: None,
-                pattern: None,
-            },
-            DocumentFilter {
-                language: Some("vue".to_string()),
-                scheme: None,
-                pattern: None,
-            },
-        ]);
-
-        let register_options = InlayHintRegistrationOptions {
-            inlay_hint_options: InlayHintOptions {
-                resolve_provider: Some(false),
-                work_done_progress_options: Default::default(),
-            },
-            text_document_registration_options: TextDocumentRegistrationOptions {
-                document_selector,
-            },
-            static_registration_options: StaticRegistrationOptions {
-                id: Some("intl-lens-inlay-hint".to_string()),
-            },
-        };
-
-        let register_options = match serde_json::to_value(register_options) {
-            Ok(value) => value,
-            Err(err) => {
-                tracing::warn!(
-                    "Failed to serialize inlay hint registration options: {:?}",
-                    err
-                );
-                return;
-            }
-        };
-
-        let registration = Registration {
-            id: "intl-lens-inlay-hint".to_string(),
-            method: "textDocument/inlayHint".to_string(),
-            register_options: Some(register_options),
-        };
-
-        match self.client.register_capability(vec![registration]).await {
-            Ok(_) => tracing::info!("Registered inlay hint capability dynamically"),
-            Err(err) => tracing::warn!("Dynamic inlay hint registration failed: {:?}", err),
-        }
     }
 
     async fn register_watched_files_capability(&self) {
@@ -541,15 +440,6 @@ impl I18nBackend {
             .await;
 
         *self.translation_store.write().await = Some(store);
-        self.refresh_inlay_hints().await;
-    }
-
-    async fn refresh_inlay_hints(&self) {
-        if *self.inlay_hint_refresh_supported.read().await {
-            if let Err(err) = self.client.inlay_hint_refresh().await {
-                tracing::warn!("Inlay hint refresh failed: {:?}", err);
-            }
-        }
     }
 
     async fn get_definition_locations(&self, key: &str) -> Vec<Location> {
@@ -609,27 +499,6 @@ impl LanguageServer for I18nBackend {
         tracing::info!("i18n-lsp initialize called");
         tracing::debug!("Client capabilities: {:?}", params.capabilities);
 
-        let inlay_hint_dynamic_registration_support = params
-            .capabilities
-            .text_document
-            .as_ref()
-            .and_then(|text_document| text_document.inlay_hint.as_ref())
-            .and_then(|inlay| inlay.dynamic_registration)
-            .unwrap_or(false);
-
-        *self.inlay_hint_dynamic_registration_supported.write().await =
-            inlay_hint_dynamic_registration_support;
-
-        let inlay_hint_refresh_supported = params
-            .capabilities
-            .workspace
-            .as_ref()
-            .and_then(|workspace| workspace.inlay_hint.as_ref())
-            .and_then(|inlay| inlay.refresh_support)
-            .unwrap_or(false);
-
-        *self.inlay_hint_refresh_supported.write().await = inlay_hint_refresh_supported;
-
         let watched_files = params
             .capabilities
             .workspace
@@ -651,14 +520,6 @@ impl LanguageServer for I18nBackend {
         *self.watched_files_relative_pattern_supported.write().await =
             watched_files_relative_pattern_support;
 
-        tracing::info!(
-            "Client inlay hint dynamicRegistration: {}",
-            inlay_hint_dynamic_registration_support
-        );
-        tracing::info!(
-            "Client inlay hint refreshSupport: {}",
-            inlay_hint_refresh_supported
-        );
         tracing::info!(
             "Client didChangeWatchedFiles dynamicRegistration: {}",
             watched_files_dynamic_registration_support
@@ -709,12 +570,9 @@ impl LanguageServer for I18nBackend {
                     ..Default::default()
                 }),
                 definition_provider: Some(OneOf::Left(true)),
-                inlay_hint_provider: Some(OneOf::Right(InlayHintServerCapabilities::Options(
-                    InlayHintOptions {
-                        resolve_provider: Some(false),
-                        work_done_progress_options: Default::default(),
-                    },
-                ))),
+                code_lens_provider: Some(CodeLensOptions {
+                    resolve_provider: Some(false),
+                }),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -728,7 +586,6 @@ impl LanguageServer for I18nBackend {
         self.client
             .log_message(MessageType::INFO, "i18n-lsp server initialized")
             .await;
-        self.register_inlay_hint_capability().await;
         self.register_watched_files_capability().await;
     }
 
@@ -891,15 +748,15 @@ impl LanguageServer for I18nBackend {
         Ok(Some(GotoDefinitionResponse::Array(locations)))
     }
 
-    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+    async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
         let uri = params.text_document.uri;
-        tracing::debug!(">>> inlay_hint: uri={}, range={:?}", uri, params.range);
+        tracing::debug!(">>> code_lens: uri={}", uri);
 
         let source_locale = self.config.read().await.source_locale.clone();
 
         let docs = self.documents.read().await;
         let Some(doc) = docs.get(uri.as_str()) else {
-            tracing::warn!("<<< inlay_hint: document NOT in store: {}", uri);
+            tracing::warn!("<<< code_lens: document NOT in store: {}", uri);
             return Ok(None);
         };
 
@@ -912,17 +769,7 @@ impl LanguageServer for I18nBackend {
             return Ok(None);
         };
 
-        let mut hints = Vec::new();
-        let request_range = params.range;
-        let request_is_empty = request_range.start == request_range.end;
-
-        let position_leq = |a: Position, b: Position| -> bool {
-            a.line < b.line || (a.line == b.line && a.character <= b.character)
-        };
-
-        let ranges_overlap = |start: Position, end: Position, range: &Range| -> bool {
-            position_leq(range.start, end) && position_leq(start, range.end)
-        };
+        let mut lenses = Vec::new();
 
         for found_key in found_keys {
             let key_start = Position {
@@ -934,39 +781,26 @@ impl LanguageServer for I18nBackend {
                 character: found_key.end_char as u32,
             };
 
-            if !request_is_empty && !ranges_overlap(key_start, key_end, &request_range) {
-                continue;
-            }
-
             if let Some(translation) = store.get_translation(&found_key.key, &source_locale) {
                 let display_text = truncate_string(&translation, 30);
 
-                let mut hint_char = found_key.end_char;
-                if let Some(line) = content.lines().nth(found_key.line) {
-                    let line_bytes = line.as_bytes();
-                    if matches!(line_bytes.get(hint_char), Some(b'\'') | Some(b'"')) {
-                        hint_char += 1;
-                    }
-                }
-
-                hints.push(InlayHint {
-                    position: Position {
-                        line: found_key.line as u32,
-                        character: hint_char as u32,
+                lenses.push(CodeLens {
+                    range: Range {
+                        start: key_start,
+                        end: key_end,
                     },
-                    label: InlayHintLabel::String(format!("= {}", display_text)),
-                    kind: Some(InlayHintKind::TYPE),
-                    text_edits: None,
-                    tooltip: None,
-                    padding_left: Some(true),
-                    padding_right: None,
+                    command: Some(Command {
+                        title: format!("= {}", display_text),
+                        command: "intlLens.showTranslation".to_string(),
+                        arguments: None,
+                    }),
                     data: None,
                 });
             }
         }
 
-        tracing::debug!("<<< inlay_hint: returning {} hints", hints.len());
-        Ok(Some(hints))
+        tracing::debug!("<<< code_lens: returning {} lenses", lenses.len());
+        Ok(Some(lenses))
     }
 }
 
