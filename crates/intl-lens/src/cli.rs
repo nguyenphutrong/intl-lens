@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use colored::Colorize;
@@ -95,7 +95,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn run_audit(
-    workspace: &PathBuf,
+    workspace: &Path,
     format: OutputFormat,
     output: Option<PathBuf>,
     missing_in: Option<String>,
@@ -112,11 +112,11 @@ async fn run_audit(
     let config = I18nConfig::load_from_workspace(workspace);
 
     pb.set_message("Scanning translation files...");
-    let store = TranslationStore::new(workspace.clone());
+    let store = TranslationStore::new(workspace.to_path_buf());
     store.scan_and_load(&config.locale_paths);
 
     pb.set_message("Scanning codebase...");
-    let mut result = AuditResult::new(workspace.clone(), config, store);
+    let mut result = AuditResult::new(workspace.to_path_buf(), config, store);
     result.scan_codebase();
 
     pb.set_message("Generating report...");
@@ -159,7 +159,7 @@ async fn run_audit(
 }
 
 async fn run_check(
-    workspace: &PathBuf,
+    workspace: &Path,
     files: Vec<PathBuf>,
     format: OutputFormat,
     output: Option<PathBuf>,
@@ -178,7 +178,7 @@ async fn run_check(
     }
 
     // Load translations to check existence
-    let store = TranslationStore::new(workspace.clone());
+    let store = TranslationStore::new(workspace.to_path_buf());
     store.scan_and_load(&config.locale_paths);
 
     let mut missing = Vec::new();
@@ -299,7 +299,7 @@ async fn run_check(
     Ok(())
 }
 
-async fn run_fix(_workspace: &PathBuf, _dry_run: bool) -> anyhow::Result<()> {
+async fn run_fix(_workspace: &Path, _dry_run: bool) -> anyhow::Result<()> {
     println!("Fix command is coming soon!");
     println!("This will suggest or automatically apply fixes for missing translations.");
     Ok(())
@@ -378,7 +378,7 @@ fn format_terminal(report: &intl_lens::audit::AuditReport, suggest_fixes: bool) 
             ));
 
             if !item.used_in.is_empty() {
-                output.push_str(&format!("    Used in:\n"));
+                output.push_str("    Used in:\n");
                 for usage in &item.used_in {
                     output.push_str(&format!(
                         "      - {}:{}\n",
@@ -388,19 +388,22 @@ fn format_terminal(report: &intl_lens::audit::AuditReport, suggest_fixes: bool) 
                 }
             }
 
-            if suggest_fixes && item.suggestion.is_some() {
-                let sugg = item.suggestion.as_ref().unwrap();
-                output.push_str(&format!(
-                    "    {} {}\n",
-                    "→".green(),
-                    "Suggestion:".green().bold()
-                ));
-                output.push_str(&format!("      Action: {}\n", sugg.action.green()));
-                if !sugg.files_to_edit.is_empty() {
-                    output.push_str(&format!("      Files to edit:\n"));
-                    for f in &sugg.files_to_edit {
-                        output
-                            .push_str(&format!("        - {}\n", f.display().to_string().green()));
+            if suggest_fixes {
+                if let Some(sugg) = item.suggestion.as_ref() {
+                    output.push_str(&format!(
+                        "    {} {}\n",
+                        "→".green(),
+                        "Suggestion:".green().bold()
+                    ));
+                    output.push_str(&format!("      Action: {}\n", sugg.action.green()));
+                    if !sugg.files_to_edit.is_empty() {
+                        output.push_str("      Files to edit:\n");
+                        for f in &sugg.files_to_edit {
+                            output.push_str(&format!(
+                                "        - {}\n",
+                                f.display().to_string().green()
+                            ));
+                        }
                     }
                 }
             }
@@ -434,7 +437,7 @@ fn format_terminal(report: &intl_lens::audit::AuditReport, suggest_fixes: bool) 
                 "    Expected placeholders: {}\n",
                 item.expected_placeholders.join(", ").cyan()
             ));
-            output.push_str(&format!("    Mismatched locales:\n"));
+            output.push_str("    Mismatched locales:\n");
             for (locale, value) in &item.locale_values {
                 output.push_str(&format!("      {}: {}\n", locale.red(), value));
             }
@@ -457,8 +460,8 @@ fn format_markdown(report: &intl_lens::audit::AuditReport, suggest_fixes: bool) 
 
     // Summary
     md.push_str("## Summary\n\n");
-    md.push_str(&format!("| Metric | Count |\n"));
-    md.push_str(&format!("|--------|-------|\n"));
+    md.push_str("| Metric | Count |\n");
+    md.push_str("|--------|-------|\n");
     md.push_str(&format!("| Total Keys | {} |\n", report.summary.total_keys));
     md.push_str(&format!(
         "| Total Locales | {} |\n",
@@ -512,14 +515,15 @@ fn format_markdown(report: &intl_lens::audit::AuditReport, suggest_fixes: bool) 
                 }
             }
 
-            if suggest_fixes && item.suggestion.is_some() {
-                let sugg = item.suggestion.as_ref().unwrap();
-                md.push_str(&format!("\n**Suggestion:**\n"));
-                md.push_str(&format!("- Action: `{}`\n", sugg.action));
-                if !sugg.files_to_edit.is_empty() {
-                    md.push_str("- Files to edit:\n");
-                    for f in &sugg.files_to_edit {
-                        md.push_str(&format!("  - `{}`\n", f.display()));
+            if suggest_fixes {
+                if let Some(sugg) = item.suggestion.as_ref() {
+                    md.push_str("\n**Suggestion:**\n");
+                    md.push_str(&format!("- Action: `{}`\n", sugg.action));
+                    if !sugg.files_to_edit.is_empty() {
+                        md.push_str("- Files to edit:\n");
+                        for f in &sugg.files_to_edit {
+                            md.push_str(&format!("  - `{}`\n", f.display()));
+                        }
                     }
                 }
             }
