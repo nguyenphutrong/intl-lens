@@ -1,13 +1,7 @@
-mod backend;
-mod config;
-mod document;
-mod i18n;
-
 use anyhow::Result;
+use intl_lens::backend::I18nBackend;
 use tower_lsp::{LspService, Server};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-
-use crate::backend::I18nBackend;
 
 #[tokio::main]
 async fn main() -> Result<()> {
