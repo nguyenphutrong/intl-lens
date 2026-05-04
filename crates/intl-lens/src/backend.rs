@@ -27,6 +27,7 @@ pub struct I18nBackend {
     translation_store: Arc<RwLock<Option<TranslationStore>>>,
     key_finder: Arc<RwLock<KeyFinder>>,
     workspace_root: Arc<RwLock<Option<PathBuf>>>,
+    code_lens_refresh_supported: Arc<RwLock<bool>>,
     watched_files_dynamic_registration_supported: Arc<RwLock<bool>>,
     watched_files_relative_pattern_supported: Arc<RwLock<bool>>,
 }
@@ -40,6 +41,7 @@ impl I18nBackend {
             translation_store: Arc::new(RwLock::new(None)),
             key_finder: Arc::new(RwLock::new(KeyFinder::default())),
             workspace_root: Arc::new(RwLock::new(None)),
+            code_lens_refresh_supported: Arc::new(RwLock::new(false)),
             watched_files_dynamic_registration_supported: Arc::new(RwLock::new(false)),
             watched_files_relative_pattern_supported: Arc::new(RwLock::new(false)),
         }
@@ -440,6 +442,15 @@ impl I18nBackend {
             .await;
 
         *self.translation_store.write().await = Some(store);
+        self.refresh_code_lenses().await;
+    }
+
+    async fn refresh_code_lenses(&self) {
+        if *self.code_lens_refresh_supported.read().await {
+            if let Err(err) = self.client.code_lens_refresh().await {
+                tracing::warn!("Code lens refresh failed: {:?}", err);
+            }
+        }
     }
 
     async fn get_definition_locations(&self, key: &str) -> Vec<Location> {
@@ -513,12 +524,21 @@ impl LanguageServer for I18nBackend {
             .and_then(|watch| watch.relative_pattern_support)
             .unwrap_or(false);
 
+        let code_lens_refresh_supported = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.code_lens.as_ref())
+            .and_then(|code_lens| code_lens.refresh_support)
+            .unwrap_or(false);
+
         *self
             .watched_files_dynamic_registration_supported
             .write()
             .await = watched_files_dynamic_registration_support;
         *self.watched_files_relative_pattern_supported.write().await =
             watched_files_relative_pattern_support;
+        *self.code_lens_refresh_supported.write().await = code_lens_refresh_supported;
 
         tracing::info!(
             "Client didChangeWatchedFiles dynamicRegistration: {}",
@@ -527,6 +547,10 @@ impl LanguageServer for I18nBackend {
         tracing::info!(
             "Client didChangeWatchedFiles relativePatternSupport: {}",
             watched_files_relative_pattern_support
+        );
+        tracing::info!(
+            "Client codeLens refreshSupport: {}",
+            code_lens_refresh_supported
         );
 
         let root_path = params
