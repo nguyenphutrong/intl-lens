@@ -242,7 +242,7 @@ impl AuditResult {
             let full_path = self.workspace_root.join(path);
             if full_path.exists() {
                 // Try to find the locale file
-                for ext in ["json", "yaml", "yml"] {
+                for ext in ["json", "js", "yaml", "yml"] {
                     let file_path = full_path.join(format!("{}.{}", locale, ext));
                     if file_path.exists() {
                         return Some(file_path);
@@ -333,6 +333,44 @@ mod tests {
 
         assert_eq!(report.placeholder_issues.len(), 1);
         assert_eq!(report.placeholder_issues[0].key, "greeting");
+
+        fs::remove_dir_all(workspace).expect("cleanup temp workspace");
+    }
+
+    #[test]
+    fn suggests_js_locale_file_for_missing_translation() {
+        let workspace = temp_workspace("audit-js-suggestion");
+        let locales_dir = workspace.join("locales");
+        let src_dir = workspace.join("src");
+        fs::create_dir_all(&locales_dir).expect("create locales dir");
+        fs::create_dir_all(&src_dir).expect("create src dir");
+        fs::write(
+            locales_dir.join("en.js"),
+            r#"export default { common: { save: "Save" } };"#,
+        )
+        .expect("write en translations");
+        fs::write(locales_dir.join("vi.js"), r#"export default {};"#)
+            .expect("write vi translations");
+        fs::write(src_dir.join("app.ts"), r#"t("common.save");"#).expect("write source file");
+
+        let config = I18nConfig::default();
+        let store = TranslationStore::new(workspace.clone());
+        store.scan_and_load_with_config(&config);
+
+        let mut audit = AuditResult::new(workspace.clone(), config, store);
+        audit.scan_codebase();
+        let report = audit.generate_report();
+
+        let missing = report
+            .missing
+            .into_iter()
+            .find(|item| item.key == "common.save")
+            .expect("missing translation should be reported");
+        let suggestion = missing
+            .suggestion
+            .expect("missing translation should include suggestion");
+
+        assert_eq!(suggestion.files_to_edit, vec![locales_dir.join("vi.js")]);
 
         fs::remove_dir_all(workspace).expect("cleanup temp workspace");
     }

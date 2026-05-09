@@ -16,6 +16,7 @@ impl TranslationParser {
             "yaml" | "yml" => Self::parse_yaml(&content),
             "php" => Self::parse_php(&content),
             "arb" => Self::parse_arb(&content),
+            "js" => Self::parse_js(&content),
             _ => Self::parse_json(&content),
         }
     }
@@ -62,6 +63,14 @@ impl TranslationParser {
         let value: YamlValue = serde_yaml::from_str(content)?;
         let mut result = HashMap::new();
         Self::flatten_yaml(&value, String::new(), &mut result);
+        Ok(result)
+    }
+
+    pub fn parse_js(content: &str) -> Result<HashMap<String, String>> {
+        let mut parser = JsParser::new(content);
+        let value = parser.parse_root_object()?;
+        let mut result = HashMap::new();
+        flatten_js(&value, String::new(), &mut result);
         Ok(result)
     }
 
@@ -452,6 +461,394 @@ impl<'a> PhpParser<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
+enum JsValue {
+    String(String),
+    Number(String),
+    Bool(bool),
+    Null,
+    Object(Vec<(String, JsValue)>),
+    Array(Vec<JsValue>),
+}
+
+#[derive(Debug, Clone)]
+enum JsToken {
+    LBrace,
+    RBrace,
+    LBracket,
+    RBracket,
+    Colon,
+    Comma,
+    String(String),
+    Ident(String),
+    Number(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JsTokenKind {
+    LBrace,
+    RBrace,
+    LBracket,
+    RBracket,
+    Colon,
+    Comma,
+}
+
+struct JsLexer<'a> {
+    input: &'a str,
+    pos: usize,
+}
+
+impl<'a> JsLexer<'a> {
+    fn new(input: &'a str) -> Self {
+        Self { input, pos: 0 }
+    }
+
+    fn next_token(&mut self) -> Option<JsToken> {
+        self.skip_whitespace_and_comments();
+
+        if self.pos >= self.input.len() {
+            return None;
+        }
+
+        let ch = self.next_char()?;
+        let token = match ch {
+            '{' => JsToken::LBrace,
+            '}' => JsToken::RBrace,
+            '[' => JsToken::LBracket,
+            ']' => JsToken::RBracket,
+            ':' => JsToken::Colon,
+            ',' => JsToken::Comma,
+            '\'' | '"' | '`' => JsToken::String(self.read_string(ch)),
+            _ if ch.is_ascii_digit() || ch == '-' => {
+                let mut number = String::new();
+                number.push(ch);
+                number.push_str(&self.read_number());
+                JsToken::Number(number)
+            }
+            _ if ch.is_alphabetic() || ch == '_' || ch == '$' => {
+                let mut ident = String::new();
+                ident.push(ch);
+                ident.push_str(&self.read_ident());
+                JsToken::Ident(ident)
+            }
+            _ => return self.next_token(),
+        };
+
+        Some(token)
+    }
+
+    fn skip_whitespace_and_comments(&mut self) {
+        loop {
+            while self.peek_char().is_some_and(|ch| ch.is_whitespace()) {
+                self.next_char();
+            }
+
+            if self.starts_with("//") {
+                self.consume_until("\n");
+                continue;
+            }
+
+            if self.starts_with("/*") {
+                self.pos += 2;
+                self.consume_until("*/");
+                continue;
+            }
+
+            break;
+        }
+    }
+
+    fn consume_until(&mut self, delimiter: &str) {
+        while self.pos < self.input.len() {
+            if self.starts_with(delimiter) {
+                self.pos += delimiter.len();
+                break;
+            }
+            self.next_char();
+        }
+    }
+
+    fn starts_with(&self, s: &str) -> bool {
+        self.input[self.pos..].starts_with(s)
+    }
+
+    fn peek_char(&self) -> Option<char> {
+        self.input[self.pos..].chars().next()
+    }
+
+    fn next_char(&mut self) -> Option<char> {
+        let ch = self.peek_char()?;
+        self.pos += ch.len_utf8();
+        Some(ch)
+    }
+
+    fn read_string(&mut self, quote: char) -> String {
+        let mut result = String::new();
+
+        while let Some(ch) = self.next_char() {
+            if ch == quote {
+                break;
+            }
+
+            if ch == '\\' {
+                if let Some(escaped) = self.next_char() {
+                    let unescaped = match escaped {
+                        'n' => '\n',
+                        'r' => '\r',
+                        't' => '\t',
+                        '\\' => '\\',
+                        '\'' => '\'',
+                        '"' => '"',
+                        '`' => '`',
+                        other => other,
+                    };
+                    result.push(unescaped);
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+
+        result
+    }
+
+    fn read_ident(&mut self) -> String {
+        let mut result = String::new();
+        while let Some(ch) = self.peek_char() {
+            if ch.is_alphanumeric() || ch == '_' || ch == '$' || ch == '-' {
+                result.push(ch);
+                self.next_char();
+            } else {
+                break;
+            }
+        }
+        result
+    }
+
+    fn read_number(&mut self) -> String {
+        let mut result = String::new();
+        while let Some(ch) = self.peek_char() {
+            if ch.is_ascii_digit() || ch == '.' {
+                result.push(ch);
+                self.next_char();
+            } else {
+                break;
+            }
+        }
+        result
+    }
+}
+
+struct JsParser<'a> {
+    lexer: JsLexer<'a>,
+    lookahead: Option<JsToken>,
+}
+
+impl<'a> JsParser<'a> {
+    fn new(input: &'a str) -> Self {
+        Self {
+            lexer: JsLexer::new(input),
+            lookahead: None,
+        }
+    }
+
+    fn parse_root_object(&mut self) -> Result<JsValue> {
+        while let Some(token) = self.peek_token() {
+            match token {
+                JsToken::LBrace => return self.parse_object(),
+                _ => {
+                    self.next_token();
+                }
+            }
+        }
+
+        bail!("No JavaScript object found")
+    }
+
+    fn parse_object(&mut self) -> Result<JsValue> {
+        self.expect_kind(JsTokenKind::LBrace)?;
+        let mut items = Vec::new();
+
+        loop {
+            if self.peek_kind() == Some(JsTokenKind::RBrace) {
+                self.next_token();
+                break;
+            }
+
+            if self.peek_token().is_none() {
+                bail!("Unexpected end of input while parsing object");
+            }
+
+            let key = self.parse_object_key()?;
+            self.expect_kind(JsTokenKind::Colon)?;
+            let value = self.parse_value()?;
+            items.push((key, value));
+
+            if !self.consume_kind(JsTokenKind::Comma)
+                && self.peek_kind() != Some(JsTokenKind::RBrace)
+            {
+                bail!("Expected ',' or '}}' in object");
+            }
+        }
+
+        Ok(JsValue::Object(items))
+    }
+
+    fn parse_array(&mut self) -> Result<JsValue> {
+        self.expect_kind(JsTokenKind::LBracket)?;
+        let mut items = Vec::new();
+
+        loop {
+            if self.peek_kind() == Some(JsTokenKind::RBracket) {
+                self.next_token();
+                break;
+            }
+
+            if self.peek_token().is_none() {
+                bail!("Unexpected end of input while parsing array");
+            }
+
+            items.push(self.parse_value()?);
+
+            if !self.consume_kind(JsTokenKind::Comma)
+                && self.peek_kind() != Some(JsTokenKind::RBracket)
+            {
+                bail!("Expected ',' or ']' in array");
+            }
+        }
+
+        Ok(JsValue::Array(items))
+    }
+
+    fn parse_object_key(&mut self) -> Result<String> {
+        match self.next_token() {
+            Some(JsToken::String(value)) => Ok(value),
+            Some(JsToken::Ident(value)) => Ok(value),
+            Some(JsToken::Number(value)) => Ok(value),
+            other => bail!("Unexpected object key token: {:?}", other),
+        }
+    }
+
+    fn parse_value(&mut self) -> Result<JsValue> {
+        match self.peek_token() {
+            Some(JsToken::LBrace) => self.parse_object(),
+            Some(JsToken::LBracket) => self.parse_array(),
+            Some(JsToken::String(_)) => match self.next_token() {
+                Some(JsToken::String(value)) => Ok(JsValue::String(value)),
+                _ => bail!("Expected string"),
+            },
+            Some(JsToken::Number(_)) => match self.next_token() {
+                Some(JsToken::Number(value)) => Ok(JsValue::Number(value)),
+                _ => bail!("Expected number"),
+            },
+            Some(JsToken::Ident(_)) => match self.next_token() {
+                Some(JsToken::Ident(ident)) => match ident.as_str() {
+                    "true" => Ok(JsValue::Bool(true)),
+                    "false" => Ok(JsValue::Bool(false)),
+                    "null" | "undefined" => Ok(JsValue::Null),
+                    _ => Ok(JsValue::String(ident)),
+                },
+                _ => bail!("Expected identifier"),
+            },
+            Some(token) => {
+                self.next_token();
+                bail!("Unexpected token: {:?}", token)
+            }
+            None => bail!("Unexpected end of input"),
+        }
+    }
+
+    fn peek_token(&mut self) -> Option<JsToken> {
+        if self.lookahead.is_none() {
+            self.lookahead = self.lexer.next_token();
+        }
+        self.lookahead.clone()
+    }
+
+    fn next_token(&mut self) -> Option<JsToken> {
+        if self.lookahead.is_some() {
+            return self.lookahead.take();
+        }
+        self.lexer.next_token()
+    }
+
+    fn expect_kind(&mut self, kind: JsTokenKind) -> Result<()> {
+        if self.peek_kind() == Some(kind) {
+            self.next_token();
+            Ok(())
+        } else {
+            bail!("Expected token kind: {:?}", kind)
+        }
+    }
+
+    fn consume_kind(&mut self, kind: JsTokenKind) -> bool {
+        if self.peek_kind() == Some(kind) {
+            self.next_token();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn peek_kind(&mut self) -> Option<JsTokenKind> {
+        self.peek_token().and_then(js_token_kind)
+    }
+}
+
+fn js_token_kind(token: JsToken) -> Option<JsTokenKind> {
+    match token {
+        JsToken::LBrace => Some(JsTokenKind::LBrace),
+        JsToken::RBrace => Some(JsTokenKind::RBrace),
+        JsToken::LBracket => Some(JsTokenKind::LBracket),
+        JsToken::RBracket => Some(JsTokenKind::RBracket),
+        JsToken::Colon => Some(JsTokenKind::Colon),
+        JsToken::Comma => Some(JsTokenKind::Comma),
+        _ => None,
+    }
+}
+
+fn flatten_js(value: &JsValue, prefix: String, result: &mut HashMap<String, String>) {
+    match value {
+        JsValue::String(value) => {
+            if !prefix.is_empty() {
+                result.insert(prefix, value.clone());
+            }
+        }
+        JsValue::Number(value) => {
+            if !prefix.is_empty() {
+                result.insert(prefix, value.clone());
+            }
+        }
+        JsValue::Bool(value) => {
+            if !prefix.is_empty() {
+                result.insert(prefix, value.to_string());
+            }
+        }
+        JsValue::Null => {}
+        JsValue::Object(items) => {
+            for (key, entry) in items {
+                let new_prefix = if prefix.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{}.{}", prefix, key)
+                };
+                flatten_js(entry, new_prefix, result);
+            }
+        }
+        JsValue::Array(items) => {
+            for (index, entry) in items.iter().enumerate() {
+                let new_prefix = if prefix.is_empty() {
+                    index.to_string()
+                } else {
+                    format!("{}.{}", prefix, index)
+                };
+                flatten_js(entry, new_prefix, result);
+            }
+        }
+    }
+}
+
 fn token_kind(token: PhpToken) -> Option<PhpTokenKind> {
     match token {
         PhpToken::LBracket => Some(PhpTokenKind::LBracket),
@@ -630,5 +1027,42 @@ mod tests {
             Some(&"{count, plural, =0{no items} =1{1 item} other{{count} items}}".to_string())
         );
         assert!(!result.contains_key("@itemCount"));
+    }
+
+    #[test]
+    fn test_parse_js_export_default_object() {
+        let js = r#"
+            export default {
+                common: {
+                    hello: "Hello",
+                    bye: 'Goodbye',
+                },
+                enabled: true,
+                items: ["One", "Two"],
+            };
+        "#;
+        let result = TranslationParser::parse_js(js).unwrap();
+        assert_eq!(result.get("common.hello"), Some(&"Hello".to_string()));
+        assert_eq!(result.get("common.bye"), Some(&"Goodbye".to_string()));
+        assert_eq!(result.get("enabled"), Some(&"true".to_string()));
+        assert_eq!(result.get("items.0"), Some(&"One".to_string()));
+        assert_eq!(result.get("items.1"), Some(&"Two".to_string()));
+    }
+
+    #[test]
+    fn test_parse_js_module_exports_with_comments() {
+        let js = r#"
+            // locale definitions
+            module.exports = {
+                greeting: `Hello`,
+                /* keep nested structure */
+                nested: {
+                    count: 3,
+                },
+            };
+        "#;
+        let result = TranslationParser::parse_js(js).unwrap();
+        assert_eq!(result.get("greeting"), Some(&"Hello".to_string()));
+        assert_eq!(result.get("nested.count"), Some(&"3".to_string()));
     }
 }

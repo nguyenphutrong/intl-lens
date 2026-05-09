@@ -47,6 +47,7 @@ impl TranslationStore {
 
     fn scan_directory(&self, dir: &Path, config: &I18nConfig) {
         let json_glob = Glob::new("*.json").unwrap().compile_matcher();
+        let js_glob = Glob::new("*.js").unwrap().compile_matcher();
         let yaml_glob = Glob::new("*.{yaml,yml}").unwrap().compile_matcher();
         let php_glob = Glob::new("*.php").unwrap().compile_matcher();
         let arb_glob = Glob::new("*.arb").unwrap().compile_matcher();
@@ -57,6 +58,7 @@ impl TranslationStore {
 
             if path.is_file()
                 && (json_glob.is_match(file_name)
+                    || js_glob.is_match(file_name)
                     || yaml_glob.is_match(file_name)
                     || php_glob.is_match(file_name)
                     || arb_glob.is_match(file_name))
@@ -321,6 +323,44 @@ mod tests {
     }
 
     #[test]
+    fn loads_js_translation_files() {
+        let workspace = temp_workspace("js-translations");
+        let locale_dir = workspace.join("locales/en");
+        fs::create_dir_all(&locale_dir).expect("create locale directory");
+        fs::write(
+            locale_dir.join("common.js"),
+            r#"
+                export default {
+                    save: "Save",
+                    status: {
+                        ready: "Ready",
+                    },
+                };
+            "#,
+        )
+        .expect("write translation file");
+
+        let config = I18nConfig {
+            locale_paths: vec!["locales".to_string()],
+            namespace_enabled: true,
+            ..I18nConfig::default()
+        };
+        let store = TranslationStore::new(workspace.clone());
+        store.scan_and_load_with_config(&config);
+
+        assert_eq!(
+            store.get_translation("common.save", "en"),
+            Some("Save".to_string())
+        );
+        assert_eq!(
+            store.get_translation("common.status.ready", "en"),
+            Some("Ready".to_string())
+        );
+
+        fs::remove_dir_all(workspace).expect("cleanup temp workspace");
+    }
+
+    #[test]
     fn loads_nested_directories_as_namespace_when_enabled() {
         let workspace = temp_workspace("namespace-nested");
         let locale_dir = workspace.join("src/locales/lang/en/system");
@@ -368,13 +408,47 @@ mod tests {
 
         fs::remove_dir_all(workspace).expect("cleanup temp workspace");
     }
+
+    #[test]
+    fn loads_script_tag_locale_directories() {
+        let workspace = temp_workspace("locale-script-tag");
+        let locale_dir = workspace.join("src/locale/zh-Hans");
+        fs::create_dir_all(&locale_dir).expect("create locale directory");
+        fs::write(
+            locale_dir.join("common.js"),
+            r#"
+                export default {
+                    title: "你好",
+                };
+            "#,
+        )
+        .expect("write translation file");
+
+        let config = I18nConfig {
+            locale_paths: vec!["src/locale".to_string()],
+            source_locale: "zh-Hans".to_string(),
+            namespace_enabled: true,
+            ..I18nConfig::default()
+        };
+        let store = TranslationStore::new(workspace.clone());
+        store.scan_and_load_with_config(&config);
+
+        assert_eq!(
+            store.get_translation("common.title", "zh-Hans"),
+            Some("你好".to_string())
+        );
+
+        fs::remove_dir_all(workspace).expect("cleanup temp workspace");
+    }
 }
 
 fn is_locale_code(s: &str) -> bool {
     let locale_patterns = [
         r"^[a-z]{2}$",
+        r"^[a-z]{2,3}[-_][A-Z][a-z]{3}$",
         r"^[a-z]{2}[-_][A-Z]{2}$",
         r"^[a-z]{2}[-_][a-z]{2}$",
+        r"^[a-z]{2,3}[-_][A-Z][a-z]{3}[-_][A-Z]{2}$",
     ];
 
     for pattern in &locale_patterns {
@@ -385,8 +459,8 @@ fn is_locale_code(s: &str) -> bool {
 
     let common_locales = [
         "en", "en-US", "en-GB", "es", "es-ES", "fr", "fr-FR", "de", "de-DE", "it", "it-IT", "pt",
-        "pt-BR", "ja", "ja-JP", "ko", "ko-KR", "zh", "zh-CN", "zh-TW", "ru", "ru-RU", "ar",
-        "ar-SA", "vi", "vi-VN",
+        "pt-BR", "ja", "ja-JP", "ko", "ko-KR", "zh", "zh-CN", "zh-TW", "zh-Hans", "zh-Hant", "ru",
+        "ru-RU", "ar", "ar-SA", "vi", "vi-VN",
     ];
 
     common_locales.contains(&s)

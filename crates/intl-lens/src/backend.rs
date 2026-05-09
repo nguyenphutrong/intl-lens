@@ -453,8 +453,8 @@ impl I18nBackend {
         }
     }
 
-    fn translation_extensions() -> [&'static str; 5] {
-        [".json", ".yaml", ".yml", ".php", ".arb"]
+    fn translation_extensions() -> [&'static str; 6] {
+        [".json", ".js", ".yaml", ".yml", ".php", ".arb"]
     }
 
     fn has_translation_extension(path: &Path) -> bool {
@@ -988,5 +988,20 @@ impl I18nBackend {
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::I18nBackend;
+
+    #[test]
+    fn recognizes_js_translation_files() {
+        assert!(I18nBackend::has_translation_extension(Path::new(
+            "locales/en.js"
+        )));
+        assert!(I18nBackend::is_translation_file_path("locales/en.js"));
     }
 }

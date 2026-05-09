@@ -464,7 +464,7 @@ fn find_locale_file(workspace: &Path, locale: &str) -> Option<PathBuf> {
             continue;
         }
 
-        for extension in ["json", "yaml", "yml", "arb", "php"] {
+        for extension in ["json", "js", "yaml", "yml", "arb", "php"] {
             let candidate = base.join(format!("{}.{}", locale, extension));
             if candidate.exists() {
                 return Some(candidate);
@@ -662,5 +662,26 @@ mod tests {
         let text = String::from_utf8(output).expect("utf8 output");
         assert!(text.starts_with("Content-Length: "));
         assert!(text.contains("\r\n\r\n{\"jsonrpc\":\"2.0\""));
+    }
+
+    #[test]
+    fn finds_js_locale_file() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_nanos();
+        let workspace = std::env::temp_dir().join(format!("intl-lens-mcp-{unique}"));
+        let locales_dir = workspace.join("locales");
+        std::fs::create_dir_all(&locales_dir).expect("create locales dir");
+        std::fs::write(
+            locales_dir.join("en.js"),
+            "module.exports = { greeting: 'Hello' };",
+        )
+        .expect("write js locale file");
+
+        let found = find_locale_file(&workspace, "en");
+        assert_eq!(found, Some(locales_dir.join("en.js")));
+
+        std::fs::remove_dir_all(workspace).expect("cleanup temp workspace");
     }
 }

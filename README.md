@@ -170,6 +170,7 @@ Create `.zed/i18n.json` in your project root:
 | Format | Extensions |
 |--------|------------|
 | JSON | `.json` |
+| JavaScript | `.js` |
 | YAML | `.yaml` `.yml` |
 | PHP | `.php` |
 | ARB (Flutter) | `.arb` |
@@ -191,6 +192,16 @@ locales/
 ├── en.json
 ├── vi.json
 └── ja.json
+```
+
+**JavaScript export structure:**
+```js
+// locales/en.js
+export default {
+  common: {
+    save: "Save"
+  }
+}
 ```
 
 **Flutter ARB structure:**
