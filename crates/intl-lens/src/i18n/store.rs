@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use dashmap::DashMap;
@@ -24,6 +24,7 @@ pub struct TranslationLocation {
 
 pub struct TranslationStore {
     translations: DashMap<String, HashMap<String, TranslationEntry>>,
+    locale_files: DashMap<String, HashSet<PathBuf>>,
     workspace_root: PathBuf,
 }
 
@@ -31,6 +32,7 @@ impl TranslationStore {
     pub fn new(workspace_root: PathBuf) -> Self {
         Self {
             translations: DashMap::new(),
+            locale_files: DashMap::new(),
             workspace_root,
         }
     }
@@ -65,6 +67,10 @@ impl TranslationStore {
             {
                 if let Some((locale, namespace)) = self.extract_locale_from_path(dir, path, config)
                 {
+                    self.locale_files
+                        .entry(locale.clone())
+                        .or_default()
+                        .insert(path.to_path_buf());
                     self.load_translation_file(path, &locale, namespace.as_deref());
                 }
             }
@@ -264,6 +270,16 @@ impl TranslationStore {
         self.translations
             .iter()
             .any(|entry| entry.value().contains_key(key))
+    }
+
+    pub fn get_locale_file_paths(&self, locale: &str) -> Vec<PathBuf> {
+        let mut result: Vec<PathBuf> = self
+            .locale_files
+            .get(locale)
+            .map(|set| set.value().iter().cloned().collect())
+            .unwrap_or_default();
+        result.sort();
+        result
     }
 
     pub fn get_missing_locales(&self, key: &str) -> Vec<String> {

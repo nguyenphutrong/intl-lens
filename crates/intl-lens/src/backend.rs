@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use serde_json::Value;
 use tokio::sync::RwLock;
 
 use tower_lsp::jsonrpc::Result;
@@ -143,6 +144,11 @@ impl I18nBackend {
                 scheme: None,
                 pattern: None,
             },
+            DocumentFilter {
+                language: Some("svelte".to_string()),
+                scheme: None,
+                pattern: None,
+            },
         ]);
 
         let register_options = InlayHintRegistrationOptions {
@@ -249,6 +255,7 @@ impl I18nBackend {
         };
 
         let mut diagnostics = Vec::new();
+        let source_locale = self.config.read().await.source_locale.clone();
 
         for found_key in found_keys {
             if !store.key_exists(&found_key.key) {
@@ -270,6 +277,33 @@ impl I18nBackend {
                     ..Default::default()
                 });
             } else {
+                // Check if the source locale value is a raw placeholder (_key_)
+                if let Some(value) = store.get_translation(&found_key.key, &source_locale) {
+                    if value.starts_with('_') && value.ends_with('_') && value.len() > 2 {
+                        diagnostics.push(Diagnostic {
+                            range: Range {
+                                start: Position {
+                                    line: found_key.line as u32,
+                                    character: found_key.start_char as u32,
+                                },
+                                end: Position {
+                                    line: found_key.line as u32,
+                                    character: found_key.end_char as u32,
+                                },
+                            },
+                            severity: Some(DiagnosticSeverity::WARNING),
+                            code: Some(NumberOrString::String("raw-translation".to_string())),
+                            source: Some("i18n".to_string()),
+                            message: format!(
+                                "Translation '{}' has a raw placeholder value — use Go to Definition to edit",
+                                found_key.key
+                            ),
+                            ..Default::default()
+                        });
+                        continue;
+                    }
+                }
+
                 let missing_locales = store.get_missing_locales(&found_key.key);
                 if !missing_locales.is_empty() {
                     diagnostics.push(Diagnostic {
@@ -552,6 +586,25 @@ impl I18nBackend {
         }
     }
 
+    async fn re_diagnose_open_documents(&self) {
+        let docs = self.documents.read().await;
+        let entries: Vec<(String, String)> = docs
+            .uris()
+            .into_iter()
+            .filter_map(|uri| {
+                let content = docs.get(&uri)?.content.clone();
+                Some((uri, content))
+            })
+            .collect();
+        drop(docs);
+
+        for (uri_str, content) in entries {
+            if let Ok(uri) = Url::parse(&uri_str) {
+                self.diagnose_document(&uri, &content).await;
+            }
+        }
+    }
+
     async fn get_definition_locations(&self, key: &str) -> Vec<Location> {
         let translation_store = self.translation_store.read().await;
         let config = self.config.read().await;
@@ -715,6 +768,17 @@ impl LanguageServer for I18nBackend {
                         work_done_progress_options: Default::default(),
                     },
                 ))),
+                code_action_provider: Some(CodeActionProviderCapability::Options(
+                    CodeActionOptions {
+                        code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
+                        resolve_provider: Some(false),
+                        work_done_progress_options: Default::default(),
+                    },
+                )),
+                execute_command_provider: Some(ExecuteCommandOptions {
+                    commands: vec!["intl-lens.createRawTranslationKey".to_string()],
+                    work_done_progress_options: Default::default(),
+                }),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -891,6 +955,139 @@ impl LanguageServer for I18nBackend {
         Ok(Some(GotoDefinitionResponse::Array(locations)))
     }
 
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let mut actions = Vec::new();
+
+        for diagnostic in &params.context.diagnostics {
+            let is_missing = diagnostic
+                .code
+                .as_ref()
+                .map(|c| matches!(c, NumberOrString::String(s) if s == "missing-translation"))
+                .unwrap_or(false);
+
+            if !is_missing {
+                continue;
+            }
+
+            let key = diagnostic
+                .message
+                .strip_prefix("Translation key '")
+                .and_then(|s| s.strip_suffix("' not found"))
+                .map(|s| s.to_string());
+
+            let Some(key) = key else {
+                continue;
+            };
+
+            let action = CodeAction {
+                title: format!("Create raw translation key '{}'", key),
+                kind: Some(CodeActionKind::QUICKFIX),
+                diagnostics: Some(vec![diagnostic.clone()]),
+                command: Some(Command {
+                    title: format!("Create raw translation key '{}'", key),
+                    command: "intl-lens.createRawTranslationKey".to_string(),
+                    arguments: Some(vec![Value::String(key)]),
+                }),
+                ..Default::default()
+            };
+
+            actions.push(CodeActionOrCommand::CodeAction(action));
+        }
+
+        if actions.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(actions))
+    }
+
+    async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
+        if params.command != "intl-lens.createRawTranslationKey" {
+            return Ok(None);
+        }
+
+        let key = params
+            .arguments
+            .first()
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let Some(key) = key else {
+            tracing::warn!("createRawTranslationKey: missing key argument");
+            return Ok(None);
+        };
+
+        let raw_value = format!("_{}_", key);
+        tracing::info!(
+            "Creating raw translation key '{}' with value '{}' in all locale files",
+            key,
+            raw_value
+        );
+
+        let translation_store = self.translation_store.read().await;
+        let Some(store) = translation_store.as_ref() else {
+            tracing::warn!("createRawTranslationKey: no translation store");
+            return Ok(None);
+        };
+
+        // Collect all locale file paths
+        let locales = store.get_locales();
+        let mut all_files: Vec<PathBuf> = Vec::new();
+        for locale in &locales {
+            for path in store.get_locale_file_paths(locale) {
+                if !all_files.contains(&path) {
+                    all_files.push(path);
+                }
+            }
+        }
+        drop(translation_store);
+
+        let mut files_written = 0;
+        for file_path in &all_files {
+            let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext != "json" {
+                tracing::debug!("Skipping non-JSON file: {:?}", file_path);
+                continue;
+            }
+
+            let file_content = match std::fs::read_to_string(file_path) {
+                Ok(content) => content,
+                Err(e) => {
+                    tracing::warn!("Failed to read {:?}: {}", file_path, e);
+                    continue;
+                }
+            };
+
+            let result = Self::insert_key_into_json(&file_content, &key, &raw_value);
+            let Some((new_content, _, _)) = result else {
+                tracing::warn!("Failed to insert key into {:?}", file_path);
+                continue;
+            };
+
+            if let Err(e) = std::fs::write(file_path, &new_content) {
+                tracing::warn!("Failed to write {:?}: {}", file_path, e);
+                continue;
+            }
+
+            files_written += 1;
+        }
+
+        tracing::info!(
+            "Inserted raw key '{}' into {}/{} locale files",
+            key,
+            files_written,
+            all_files.len()
+        );
+
+        // Reload translations so the new key is recognized immediately
+        self.reload_translations().await;
+
+        // Re-diagnose all open documents to clear stale warnings
+        self.re_diagnose_open_documents().await;
+
+        Ok(None)
+    }
+
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
         let uri = params.text_document.uri;
         tracing::debug!(">>> inlay_hint: uri={}, range={:?}", uri, params.range);
@@ -971,6 +1168,241 @@ impl LanguageServer for I18nBackend {
 }
 
 impl I18nBackend {
+    /// Insert a (possibly nested) key into a JSON string with the given value,
+    /// using text-based insertion to preserve existing formatting and key order.
+    /// Returns `(new_content, cursor_line, cursor_character)`.
+    fn insert_key_into_json(content: &str, key: &str, value: &str) -> Option<(String, u32, u32)> {
+        // Validate JSON and detect style
+        let root: Value = serde_json::from_str(content).ok()?;
+        let root_obj = root.as_object()?;
+        let parts: Vec<&str> = key.split('.').collect();
+        let indent = Self::detect_indent_unit(content);
+
+        // Flat style: all top-level values are non-objects (i.e. no nesting)
+        let is_flat = root_obj.values().all(|v| !v.is_object());
+
+        if is_flat || parts.len() == 1 {
+            // Insert the full dotted key before the root closing }
+            let entry = format!("{}\"{}\": \"{}\"", indent, key, value);
+            let brace_offset = content.rfind('}')?;
+            let (new_content, insert_line) =
+                Self::insert_text_before_offset(content, brace_offset, &entry)?;
+            let cursor_line = insert_line as u32;
+            let cursor_col = (indent.len() + format!("\"{}\": \"", key).len()) as u32;
+            Some((new_content, cursor_line, cursor_col))
+        } else {
+            // Nested: walk existing parents, then insert remaining structure
+            let mut parent_brace_end: Option<usize> = None; // byte offset of parent's closing }
+            let mut depth_found = 0usize;
+
+            for i in 0..parts.len() - 1 {
+                let range = Self::find_nested_object_range(content, &parts[..=i]);
+                if let Some((_, close)) = range {
+                    parent_brace_end = Some(close);
+                    depth_found = i + 1;
+                } else {
+                    break;
+                }
+            }
+
+            let remaining = &parts[depth_found..];
+            let base_indent_level = depth_found + 1;
+
+            // Build text for the new key (and any intermediate objects)
+            let mut entry_lines = Vec::new();
+            for (i, part) in remaining.iter().enumerate() {
+                let level = base_indent_level + i;
+                if i == remaining.len() - 1 {
+                    entry_lines.push(format!(
+                        "{}\"{}\": \"{}\"",
+                        indent.repeat(level),
+                        part,
+                        value
+                    ));
+                } else {
+                    entry_lines.push(format!("{}\"{}\": {{", indent.repeat(level), part));
+                }
+            }
+            // Close any intermediate braces we opened (in reverse)
+            for i in (0..remaining.len().saturating_sub(1)).rev() {
+                let level = base_indent_level + i;
+                entry_lines.push(format!("{}}}", indent.repeat(level)));
+            }
+
+            let entry = entry_lines.join("\n");
+
+            // Find the closing } offset to insert before
+            let brace_offset =
+                parent_brace_end.unwrap_or_else(|| content.rfind('}').unwrap_or(content.len()));
+
+            let (new_content, insert_line) =
+                Self::insert_text_before_offset(content, brace_offset, &entry)?;
+
+            // Cursor goes on the leaf key's line (the first of the inserted lines
+            // if remaining.len() == 1, otherwise deeper)
+            let leaf_line_offset = remaining.len() - 1;
+            let cursor_line = (insert_line + leaf_line_offset) as u32;
+            let leaf_indent_level = base_indent_level + remaining.len() - 1;
+            let leaf_part = remaining.last()?;
+            let cursor_col = (indent.repeat(leaf_indent_level).len()
+                + format!("\"{}\": \"", leaf_part).len()) as u32;
+
+            Some((new_content, cursor_line, cursor_col))
+        }
+    }
+
+    /// Detect the indentation unit used in a JSON file (e.g. "  ", "    ", or "\t").
+    fn detect_indent_unit(content: &str) -> String {
+        let mut min_indent: Option<String> = None;
+        for line in content.lines() {
+            let stripped = line.trim_start();
+            if stripped.is_empty() {
+                continue;
+            }
+            let leading: String = line[..line.len() - stripped.len()].to_string();
+            if leading.is_empty() {
+                continue;
+            }
+            if leading.starts_with('\t') {
+                return "\t".to_string();
+            }
+            match &min_indent {
+                None => min_indent = Some(leading),
+                Some(current) if leading.len() < current.len() => {
+                    min_indent = Some(leading);
+                }
+                _ => {}
+            }
+        }
+        min_indent.unwrap_or_else(|| "  ".to_string())
+    }
+
+    /// Walk a chain of key segments from the root to find the byte range
+    /// `(open_brace, close_brace)` of the innermost object.
+    /// E.g. for `["common", "buttons"]` it finds `"common": { "buttons": { ... } }`
+    /// and returns the range of the `buttons` object.
+    fn find_nested_object_range(content: &str, key_chain: &[&str]) -> Option<(usize, usize)> {
+        let mut search_from = 0usize;
+        let mut result: Option<(usize, usize)> = None;
+
+        for key_name in key_chain {
+            let range = Self::find_key_object_range(content, search_from, key_name)?;
+            search_from = range.0 + 1; // search inside this object
+            result = Some(range);
+        }
+        result
+    }
+
+    /// Find the byte offsets `(open_brace, close_brace)` of the JSON object
+    /// that is the value of `"key_name"`, searching forward from `search_from`.
+    fn find_key_object_range(
+        content: &str,
+        search_from: usize,
+        key_name: &str,
+    ) -> Option<(usize, usize)> {
+        let needle = format!("\"{}\"", key_name);
+        let slice = &content[search_from..];
+        let key_rel = slice.find(&needle)?;
+        let key_abs = search_from + key_rel;
+        let after_key = &content[key_abs + needle.len()..];
+
+        // Expect `:` then `{` (with optional whitespace)
+        let mut found_colon = false;
+        let mut open_brace_abs = None;
+
+        for (i, ch) in after_key.char_indices() {
+            match ch {
+                ':' if !found_colon => found_colon = true,
+                '{' if found_colon => {
+                    open_brace_abs = Some(key_abs + needle.len() + i);
+                    break;
+                }
+                c if c.is_whitespace() => continue,
+                _ if !found_colon => return None,
+                _ => return None, // value is not an object
+            }
+        }
+
+        let open = open_brace_abs?;
+
+        // Track braces to find matching }, respecting strings
+        let mut depth = 1i32;
+        let mut in_string = false;
+        let mut escape = false;
+
+        for (i, ch) in content[open + 1..].char_indices() {
+            if escape {
+                escape = false;
+                continue;
+            }
+            match ch {
+                '\\' if in_string => escape = true,
+                '"' => in_string = !in_string,
+                '{' if !in_string => depth += 1,
+                '}' if !in_string => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some((open, open + 1 + i));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        None
+    }
+
+    /// Insert `entry` text before the `}` at `brace_offset` in `content`.
+    /// Adds a trailing comma to the previous entry if needed.
+    /// Returns `(new_content, first_inserted_line_number)`.
+    fn insert_text_before_offset(
+        content: &str,
+        brace_offset: usize,
+        entry: &str,
+    ) -> Option<(String, usize)> {
+        let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+        let has_trailing_newline = content.ends_with('\n');
+
+        // Find which line index contains `brace_offset`
+        let mut cumulative = 0usize;
+        let mut brace_line = lines.len().saturating_sub(1);
+        for (i, line_text) in content.lines().enumerate() {
+            let line_end = cumulative + line_text.len();
+            if brace_offset >= cumulative && brace_offset <= line_end {
+                brace_line = i;
+                break;
+            }
+            cumulative = line_end + 1; // +1 for newline
+        }
+
+        // Ensure the last content line before the brace has a trailing comma
+        for i in (0..brace_line).rev() {
+            let trimmed = lines[i].trim();
+            if !trimmed.is_empty() {
+                if !trimmed.ends_with(',') && !trimmed.ends_with('{') && !trimmed.ends_with('[') {
+                    lines[i].push(',');
+                }
+                break;
+            }
+        }
+
+        // Splice in the entry lines right before brace_line
+        let entry_lines: Vec<String> = entry.lines().map(|l| l.to_string()).collect();
+        let insert_at = brace_line;
+
+        let mut new_lines = Vec::with_capacity(lines.len() + entry_lines.len());
+        new_lines.extend_from_slice(&lines[..brace_line]);
+        new_lines.extend(entry_lines);
+        new_lines.extend_from_slice(&lines[brace_line..]);
+
+        let mut result = new_lines.join("\n");
+        if has_trailing_newline {
+            result.push('\n');
+        }
+
+        Some((result, insert_at))
+    }
+
     fn extract_completion_prefix(line: &str, character: usize) -> Option<String> {
         let before_cursor = &line[..character.min(line.len())];
 
@@ -995,7 +1427,7 @@ impl I18nBackend {
 mod tests {
     use std::path::Path;
 
-    use super::I18nBackend;
+    use super::*;
 
     #[test]
     fn recognizes_js_translation_files() {
@@ -1003,5 +1435,196 @@ mod tests {
             "locales/en.js"
         )));
         assert!(I18nBackend::is_translation_file_path("locales/en.js"));
+    }
+
+    #[test]
+    fn test_insert_flat_key_into_flat_json() {
+        let content = "{\n  \"hello\": \"world\",\n  \"foo\": \"bar\"\n}\n";
+        let result = I18nBackend::insert_key_into_json(content, "new.key", "_new.key_");
+        assert!(result.is_some());
+        let (new_content, cursor_line, _cursor_col) = result.unwrap();
+        assert!(new_content.contains("\"new.key\": \"_new.key_\""));
+        let line = new_content.lines().nth(cursor_line as usize).unwrap();
+        assert!(line.contains("\"new.key\": \"_new.key_\""));
+    }
+
+    #[test]
+    fn test_insert_nested_key_into_existing_parent() {
+        let content = "{\n  \"common\": {\n    \"hello\": \"world\"\n  }\n}\n";
+        let result =
+            I18nBackend::insert_key_into_json(content, "common.goodbye", "_common.goodbye_");
+        assert!(result.is_some());
+        let (new_content, cursor_line, _cursor_col) = result.unwrap();
+        assert!(new_content.contains("\"goodbye\": \"_common.goodbye_\""));
+        let line = new_content.lines().nth(cursor_line as usize).unwrap();
+        assert!(line.contains("\"goodbye\": \"_common.goodbye_\""));
+    }
+
+    #[test]
+    fn test_insert_creates_intermediate_objects() {
+        let content = "{\n  \"common\": {\n    \"hello\": \"world\"\n  }\n}\n";
+        let result =
+            I18nBackend::insert_key_into_json(content, "pages.home.title", "_pages.home.title_");
+        assert!(result.is_some());
+        let (new_content, cursor_line, _cursor_col) = result.unwrap();
+        assert!(new_content.contains("\"pages\": {"));
+        assert!(new_content.contains("\"home\": {"));
+        assert!(new_content.contains("\"title\": \"_pages.home.title_\""));
+        let line = new_content.lines().nth(cursor_line as usize).unwrap();
+        assert!(line.contains("\"title\": \"_pages.home.title_\""));
+    }
+
+    #[test]
+    fn test_insert_single_segment_key() {
+        let content = "{\n  \"hello\": \"world\"\n}\n";
+        let result = I18nBackend::insert_key_into_json(content, "goodbye", "_goodbye_");
+        assert!(result.is_some());
+        let (new_content, _, _) = result.unwrap();
+        assert!(new_content.contains("\"goodbye\": \"_goodbye_\""));
+        assert!(new_content.contains("\"hello\": \"world\""));
+    }
+
+    #[test]
+    fn test_insert_preserves_existing_content() {
+        let content = "{\n  \"hello\": \"world\",\n  \"foo\": \"bar\"\n}\n";
+        let result = I18nBackend::insert_key_into_json(content, "baz", "_baz_");
+        assert!(result.is_some());
+        let (new_content, _, _) = result.unwrap();
+        assert!(new_content.contains("\"hello\": \"world\""));
+        assert!(new_content.contains("\"foo\": \"bar\""));
+        assert!(new_content.contains("\"baz\": \"_baz_\""));
+    }
+
+    #[test]
+    fn test_detect_indent_two_spaces() {
+        let content = "{\n  \"hello\": \"world\"\n}";
+        assert_eq!(I18nBackend::detect_indent_unit(content), "  ");
+    }
+
+    #[test]
+    fn test_detect_indent_four_spaces() {
+        let content = "{\n    \"hello\": \"world\"\n}";
+        assert_eq!(I18nBackend::detect_indent_unit(content), "    ");
+    }
+
+    #[test]
+    fn test_detect_indent_tab() {
+        let content = "{\n\t\"hello\": \"world\"\n}";
+        assert_eq!(I18nBackend::detect_indent_unit(content), "\t");
+    }
+
+    #[test]
+    fn test_cursor_position_points_inside_value_quotes() {
+        let content = "{\n  \"hello\": \"world\"\n}\n";
+        let result = I18nBackend::insert_key_into_json(content, "test", "_test_");
+        let (_new_content, cursor_line, cursor_col) = result.unwrap();
+        let line = _new_content.lines().nth(cursor_line as usize).unwrap();
+        let before_cursor = &line[..cursor_col as usize];
+        assert!(
+            before_cursor.ends_with("\"test\": \""),
+            "cursor should be inside the value quotes, got before_cursor: '{}'",
+            before_cursor
+        );
+    }
+
+    #[test]
+    fn test_insert_adds_trailing_comma_to_previous_entry() {
+        // No trailing comma after "world"
+        let content = "{\n  \"hello\": \"world\"\n}\n";
+        let result = I18nBackend::insert_key_into_json(content, "goodbye", "_goodbye_");
+        assert!(result.is_some());
+        let (new_content, _, _) = result.unwrap();
+        assert!(
+            new_content.contains("\"hello\": \"world\","),
+            "previous entry should get a trailing comma, got:\n{}",
+            new_content
+        );
+    }
+
+    #[test]
+    fn test_insert_into_second_nested_parent() {
+        let content =
+            "{\n  \"buttons\": {\n    \"save\": \"Save\"\n  },\n  \"labels\": {\n    \"name\": \"Name\"\n  }\n}\n";
+        let result =
+            I18nBackend::insert_key_into_json(content, "buttons.cancel", "_buttons.cancel_");
+        assert!(result.is_some());
+        let (new_content, cursor_line, _) = result.unwrap();
+        assert!(new_content.contains("\"cancel\": \"_buttons.cancel_\""));
+        let line = new_content.lines().nth(cursor_line as usize).unwrap();
+        assert!(
+            line.contains("\"cancel\": \"_buttons.cancel_\""),
+            "cancel should appear on the cursor line"
+        );
+        // "cancel" should be inside "buttons", not at root or inside "labels"
+        let buttons_line = new_content
+            .lines()
+            .position(|l| l.contains("\"buttons\""))
+            .unwrap();
+        let labels_line = new_content
+            .lines()
+            .position(|l| l.contains("\"labels\""))
+            .unwrap();
+        assert!(
+            cursor_line as usize > buttons_line && (cursor_line as usize) < labels_line,
+            "cancel should be between buttons and labels, cursor_line={}, buttons={}, labels={}",
+            cursor_line,
+            buttons_line,
+            labels_line
+        );
+    }
+
+    #[test]
+    fn test_insert_deeply_nested_into_flat_file_uses_dotted_key() {
+        // When the file is flat-style (no nested objects), the key is inserted as a dotted string
+        let content = "{\n  \"existing\": \"value\"\n}\n";
+        let result = I18nBackend::insert_key_into_json(content, "a.b.c.d", "_a.b.c.d_");
+        assert!(result.is_some());
+        let (new_content, cursor_line, _) = result.unwrap();
+        assert!(
+            new_content.contains("\"a.b.c.d\": \"_a.b.c.d_\""),
+            "flat-style file should use dotted key, got:\n{}",
+            new_content
+        );
+        let line = new_content.lines().nth(cursor_line as usize).unwrap();
+        assert!(line.contains("\"a.b.c.d\": \"_a.b.c.d_\""));
+    }
+
+    #[test]
+    fn test_insert_deeply_nested_creates_all_parents() {
+        // When the file already has nested objects, new keys should be nested too
+        let content = "{\n  \"common\": {\n    \"hello\": \"world\"\n  }\n}\n";
+        let result = I18nBackend::insert_key_into_json(content, "a.b.c.d", "_a.b.c.d_");
+        assert!(result.is_some());
+        let (new_content, cursor_line, _) = result.unwrap();
+        assert!(new_content.contains("\"a\": {"));
+        assert!(new_content.contains("\"b\": {"));
+        assert!(new_content.contains("\"c\": {"));
+        assert!(new_content.contains("\"d\": \"_a.b.c.d_\""));
+        let line = new_content.lines().nth(cursor_line as usize).unwrap();
+        assert!(line.contains("\"d\": \"_a.b.c.d_\""));
+    }
+
+    #[test]
+    fn test_find_nested_object_range_finds_existing() {
+        let content = "{\n  \"common\": {\n    \"hello\": \"world\"\n  }\n}";
+        let range = I18nBackend::find_nested_object_range(content, &["common"]);
+        assert!(range.is_some());
+        let (open, close) = range.unwrap();
+        assert_eq!(&content[open..=open], "{");
+        assert_eq!(&content[close..=close], "}");
+    }
+
+    #[test]
+    fn test_find_nested_object_range_returns_none_for_missing() {
+        let content = "{\n  \"common\": {\n    \"hello\": \"world\"\n  }\n}";
+        let range = I18nBackend::find_nested_object_range(content, &["missing"]);
+        assert!(range.is_none());
+    }
+
+    #[test]
+    fn test_invalid_json_returns_none() {
+        let content = "not valid json";
+        let result = I18nBackend::insert_key_into_json(content, "test", "_test_");
+        assert!(result.is_none());
     }
 }

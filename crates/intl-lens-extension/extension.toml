@@ -9,7 +9,7 @@ repository = "https://github.com/nguyenphutrong/intl-lens"
 
 [language_servers.intl-lens]
 name = "Intl Lens Language Server"
-languages = ["TypeScript", "TSX", "JavaScript", "JSX", "HTML", "Angular", "PHP", "Blade", "Vue.js"]
+languages = ["TypeScript", "TSX", "JavaScript", "JSX", "HTML", "Angular", "PHP", "Blade", "Vue.js", "Svelte"]
 
 [language_servers.intl-lens.language_ids]
 "TypeScript" = "typescript"
@@ -21,3 +21,4 @@ languages = ["TypeScript", "TSX", "JavaScript", "JSX", "HTML", "Angular", "PHP",
 "PHP" = "php"
 "Blade" = "blade"
 "Vue.js" = "vue"
+"Svelte" = "svelte"

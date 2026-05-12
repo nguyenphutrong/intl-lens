@@ -127,6 +127,9 @@ fn default_function_patterns() -> Vec<String> {
         r#"\$te\s*\(\s*["']([^"']+)["']"#.to_string(),
         r#"useI18n\s*\(\s*\)\s*.*?\.t\s*\(\s*["']([^"']+)["']"#.to_string(),
         r#"formatMessage\s*\(\s*\{\s*id:\s*["']([^"']+)["']"#.to_string(),
+        // Svelte patterns (svelte-i18n)
+        r#"\$_\s*\(\s*["']([^"']+)["']"#.to_string(),
+        r#"\$format\s*\(\s*["']([^"']+)["']"#.to_string(),
         // Angular patterns
         r#"translateService\.(?:instant|get|stream)\s*\(\s*["']([^"']+)["']"#.to_string(),
         r#"translocoService\.(?:translate|selectTranslate)\s*\(\s*["']([^"']+)["']"#.to_string(),
@@ -185,6 +188,16 @@ fn detect_framework_locale_paths(root: &Path) -> Vec<String> {
         paths.push("locales".to_string());
         paths.push("i18n".to_string());
         paths.push("public/locales".to_string());
+    }
+
+    if is_svelte_project(root) {
+        paths.push("src/lib/i18n".to_string());
+        paths.push("src/lib/locales".to_string());
+        paths.push("src/locales".to_string());
+        paths.push("src/i18n".to_string());
+        paths.push("locales".to_string());
+        paths.push("messages".to_string());
+        paths.push("static/locales".to_string());
     }
 
     paths
@@ -253,6 +266,28 @@ fn parse_l10n_yaml(root: &Path) -> Option<String> {
     yaml.get("arb-dir")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
+}
+
+fn is_svelte_project(root: &Path) -> bool {
+    let package_json = root.join("package.json");
+    let Some(value) = read_json(&package_json) else {
+        return false;
+    };
+
+    json_has_dependency(&value, "svelte", &["dependencies", "devDependencies"])
+        || json_has_dependency(&value, "svelte-i18n", &["dependencies", "devDependencies"])
+        || json_has_dependency(
+            &value,
+            "sveltekit-i18n",
+            &["dependencies", "devDependencies"],
+        )
+        || json_has_dependency(
+            &value,
+            "@inlang/paraglide-sveltekit",
+            &["dependencies", "devDependencies"],
+        )
+        || root.join("svelte.config.js").exists()
+        || root.join("svelte.config.ts").exists()
 }
 
 fn is_vue_project(root: &Path) -> bool {
