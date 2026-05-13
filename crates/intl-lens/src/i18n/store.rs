@@ -122,9 +122,7 @@ impl TranslationStore {
         locale_index: Option<usize>,
         config: &I18nConfig,
     ) -> Option<String> {
-        let Some(file_name) = segments.last().copied() else {
-            return None;
-        };
+        let file_name = segments.last().copied()?;
 
         let file_stem = Path::new(file_name).file_stem()?.to_str()?;
         let extension = Path::new(file_name)
@@ -296,6 +294,64 @@ impl TranslationStore {
     }
 }
 
+fn is_locale_code(s: &str) -> bool {
+    let locale_patterns = [
+        r"^[a-z]{2}$",
+        r"^[a-z]{2,3}[-_][A-Z][a-z]{3}$",
+        r"^[a-z]{2}[-_][A-Z]{2}$",
+        r"^[a-z]{2}[-_][a-z]{2}$",
+        r"^[a-z]{2,3}[-_][A-Z][a-z]{3}[-_][A-Z]{2}$",
+    ];
+
+    for pattern in &locale_patterns {
+        if regex::Regex::new(pattern).unwrap().is_match(s) {
+            return true;
+        }
+    }
+
+    let common_locales = [
+        "en", "en-US", "en-GB", "es", "es-ES", "fr", "fr-FR", "de", "de-DE", "it", "it-IT", "pt",
+        "pt-BR", "ja", "ja-JP", "ko", "ko-KR", "zh", "zh-CN", "zh-TW", "zh-Hans", "zh-Hant", "ru",
+        "ru-RU", "ar", "ar-SA", "vi", "vi-VN",
+    ];
+
+    common_locales.contains(&s)
+}
+
+/// Extract locale from ARB filename patterns like "app_en", "messages_en_US", "intl_vi"
+fn extract_locale_from_arb_filename(file_stem: &str) -> Option<String> {
+    // Common ARB file prefixes
+    let prefixes = ["app_", "intl_", "messages_", "l10n_", "strings_"];
+
+    for prefix in prefixes {
+        if let Some(locale_part) = file_stem.strip_prefix(prefix) {
+            if is_locale_code(locale_part) {
+                return Some(locale_part.to_string());
+            }
+        }
+    }
+
+    // Try splitting by underscore and check if last part(s) form a locale
+    let parts: Vec<&str> = file_stem.split('_').collect();
+    if parts.len() >= 2 {
+        // Try last part as locale (e.g., "app_en" -> "en")
+        let last = parts[parts.len() - 1];
+        if is_locale_code(last) {
+            return Some(last.to_string());
+        }
+
+        // Try last two parts as locale (e.g., "app_en_US" -> "en_US")
+        if parts.len() >= 3 {
+            let locale = format!("{}_{}", parts[parts.len() - 2], parts[parts.len() - 1]);
+            if is_locale_code(&locale) {
+                return Some(locale);
+            }
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -456,62 +512,4 @@ mod tests {
 
         fs::remove_dir_all(workspace).expect("cleanup temp workspace");
     }
-}
-
-fn is_locale_code(s: &str) -> bool {
-    let locale_patterns = [
-        r"^[a-z]{2}$",
-        r"^[a-z]{2,3}[-_][A-Z][a-z]{3}$",
-        r"^[a-z]{2}[-_][A-Z]{2}$",
-        r"^[a-z]{2}[-_][a-z]{2}$",
-        r"^[a-z]{2,3}[-_][A-Z][a-z]{3}[-_][A-Z]{2}$",
-    ];
-
-    for pattern in &locale_patterns {
-        if regex::Regex::new(pattern).unwrap().is_match(s) {
-            return true;
-        }
-    }
-
-    let common_locales = [
-        "en", "en-US", "en-GB", "es", "es-ES", "fr", "fr-FR", "de", "de-DE", "it", "it-IT", "pt",
-        "pt-BR", "ja", "ja-JP", "ko", "ko-KR", "zh", "zh-CN", "zh-TW", "zh-Hans", "zh-Hant", "ru",
-        "ru-RU", "ar", "ar-SA", "vi", "vi-VN",
-    ];
-
-    common_locales.contains(&s)
-}
-
-/// Extract locale from ARB filename patterns like "app_en", "messages_en_US", "intl_vi"
-fn extract_locale_from_arb_filename(file_stem: &str) -> Option<String> {
-    // Common ARB file prefixes
-    let prefixes = ["app_", "intl_", "messages_", "l10n_", "strings_"];
-
-    for prefix in prefixes {
-        if let Some(locale_part) = file_stem.strip_prefix(prefix) {
-            if is_locale_code(locale_part) {
-                return Some(locale_part.to_string());
-            }
-        }
-    }
-
-    // Try splitting by underscore and check if last part(s) form a locale
-    let parts: Vec<&str> = file_stem.split('_').collect();
-    if parts.len() >= 2 {
-        // Try last part as locale (e.g., "app_en" -> "en")
-        let last = parts[parts.len() - 1];
-        if is_locale_code(last) {
-            return Some(last.to_string());
-        }
-
-        // Try last two parts as locale (e.g., "app_en_US" -> "en_US")
-        if parts.len() >= 3 {
-            let locale = format!("{}_{}", parts[parts.len() - 2], parts[parts.len() - 1]);
-            if is_locale_code(&locale) {
-                return Some(locale);
-            }
-        }
-    }
-
-    None
 }
