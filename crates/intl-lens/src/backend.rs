@@ -60,7 +60,7 @@ impl I18nBackend {
         *self.key_finder.write().await = key_finder;
 
         let store = TranslationStore::new(root.clone());
-        store.scan_and_load(&config.locale_paths);
+        store.scan_and_load_with_config(&config);
 
         let locales = store.get_locales();
         let keys = store.get_all_keys();
@@ -487,8 +487,8 @@ impl I18nBackend {
         }
     }
 
-    fn translation_extensions() -> [&'static str; 5] {
-        [".json", ".yaml", ".yml", ".php", ".arb"]
+    fn translation_extensions() -> [&'static str; 6] {
+        [".json", ".js", ".yaml", ".yml", ".php", ".arb"]
     }
 
     fn has_translation_extension(path: &Path) -> bool {
@@ -551,14 +551,14 @@ impl I18nBackend {
 
     async fn reload_translations(&self) {
         let workspace_root = { self.workspace_root.read().await.clone() };
-        let locale_paths = { self.config.read().await.locale_paths.clone() };
+        let config = { self.config.read().await.clone() };
 
         let Some(root) = workspace_root.as_ref() else {
             return;
         };
 
         let store = TranslationStore::new(root.clone());
-        store.scan_and_load(&locale_paths);
+        store.scan_and_load_with_config(&config);
 
         let locales = store.get_locales();
         let keys = store.get_all_keys();
@@ -1425,7 +1425,17 @@ impl I18nBackend {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
+
+    #[test]
+    fn recognizes_js_translation_files() {
+        assert!(I18nBackend::has_translation_extension(Path::new(
+            "locales/en.js"
+        )));
+        assert!(I18nBackend::is_translation_file_path("locales/en.js"));
+    }
 
     #[test]
     fn test_insert_flat_key_into_flat_json() {

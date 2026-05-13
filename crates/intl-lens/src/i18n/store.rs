@@ -6,6 +6,8 @@ use globset::Glob;
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
+use crate::config::I18nConfig;
+
 use super::parser::TranslationParser;
 
 #[derive(Debug, Clone)]
@@ -35,51 +37,62 @@ impl TranslationStore {
         }
     }
 
-    pub fn scan_and_load(&self, locale_paths: &[String]) {
+    pub fn scan_and_load_with_config(&self, config: &I18nConfig) {
+        let locale_paths = &config.locale_paths;
         for locale_path in locale_paths {
             let full_path = self.workspace_root.join(locale_path);
             if full_path.exists() {
-                self.scan_directory(&full_path);
+                self.scan_directory(&full_path, config);
             }
         }
     }
 
-    fn scan_directory(&self, dir: &Path) {
+    fn scan_directory(&self, dir: &Path, config: &I18nConfig) {
         let json_glob = Glob::new("*.json").unwrap().compile_matcher();
+        let js_glob = Glob::new("*.js").unwrap().compile_matcher();
         let yaml_glob = Glob::new("*.{yaml,yml}").unwrap().compile_matcher();
         let php_glob = Glob::new("*.php").unwrap().compile_matcher();
         let arb_glob = Glob::new("*.arb").unwrap().compile_matcher();
 
-        for entry in WalkDir::new(dir)
-            .max_depth(3)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
+        for entry in WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
             let path = entry.path();
             let file_name = path.file_name().unwrap_or_default();
 
             if path.is_file()
                 && (json_glob.is_match(file_name)
+                    || js_glob.is_match(file_name)
                     || yaml_glob.is_match(file_name)
                     || php_glob.is_match(file_name)
                     || arb_glob.is_match(file_name))
             {
-                if let Some(locale) = self.extract_locale_from_path(path) {
+                if let Some((locale, namespace)) = self.extract_locale_from_path(dir, path, config)
+                {
                     self.locale_files
                         .entry(locale.clone())
                         .or_default()
                         .insert(path.to_path_buf());
-                    self.load_translation_file(path, &locale);
+                    self.load_translation_file(path, &locale, namespace.as_deref());
                 }
             }
         }
     }
 
-    fn extract_locale_from_path(&self, path: &Path) -> Option<String> {
+    fn extract_locale_from_path(
+        &self,
+        locale_root: &Path,
+        path: &Path,
+        config: &I18nConfig,
+    ) -> Option<(String, Option<String>)> {
+        let relative = path.strip_prefix(locale_root).ok()?;
         let file_stem = path.file_stem()?.to_str()?;
+        let segments: Vec<&str> = relative
+            .iter()
+            .filter_map(|segment| segment.to_str())
+            .collect();
 
         if is_locale_code(file_stem) {
-            return Some(file_stem.to_string());
+            let namespace = self.build_namespace_from_segments(&segments, None, config);
+            return Some((file_stem.to_string(), namespace));
         }
 
         // Handle ARB naming convention: app_en.arb, app_es.arb, etc.
@@ -87,34 +100,76 @@ impl TranslationStore {
             if ext == "arb" {
                 // Try to extract locale from patterns like "app_en" or "messages_en_US"
                 if let Some(locale) = extract_locale_from_arb_filename(file_stem) {
-                    return Some(locale);
+                    let namespace = self.build_namespace_from_segments(&segments, None, config);
+                    return Some((locale, namespace));
                 }
             }
         }
 
-        if let Some(parent) = path.parent() {
-            if let Some(parent_name) = parent.file_name().and_then(|n| n.to_str()) {
-                if is_locale_code(parent_name) {
-                    return Some(parent_name.to_string());
-                }
+        for (index, segment) in segments.iter().enumerate().rev().skip(1) {
+            if is_locale_code(segment) {
+                let namespace = self.build_namespace_from_segments(&segments, Some(index), config);
+                return Some(((*segment).to_string(), namespace));
             }
         }
 
         None
     }
 
-    fn load_translation_file(&self, path: &Path, locale: &str) {
+    fn build_namespace_from_segments(
+        &self,
+        segments: &[&str],
+        locale_index: Option<usize>,
+        config: &I18nConfig,
+    ) -> Option<String> {
+        let file_name = segments.last().copied()?;
+
+        let file_stem = Path::new(file_name).file_stem()?.to_str()?;
+        let extension = Path::new(file_name)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("");
+
+        if extension == "php" && !file_stem.is_empty() && !is_locale_code(file_stem) {
+            let mut namespace_parts: Vec<&str> = Vec::new();
+            if let Some(index) = locale_index {
+                namespace_parts.extend(
+                    segments
+                        .iter()
+                        .skip(index + 1)
+                        .take(segments.len() - index - 2),
+                );
+            }
+            namespace_parts.push(file_stem);
+            return Some(namespace_parts.join("."));
+        }
+
+        if !config.namespace_enabled || file_stem.is_empty() || is_locale_code(file_stem) {
+            return None;
+        }
+
+        let mut namespace_parts: Vec<&str> = Vec::new();
+        if let Some(index) = locale_index {
+            namespace_parts.extend(
+                segments
+                    .iter()
+                    .skip(index + 1)
+                    .take(segments.len() - index - 2),
+            );
+        }
+        namespace_parts.push(file_stem);
+
+        if namespace_parts.is_empty() {
+            None
+        } else {
+            Some(namespace_parts.join("."))
+        }
+    }
+
+    fn load_translation_file(&self, path: &Path, locale: &str, prefix: Option<&str>) {
         match TranslationParser::parse_file(path) {
             Ok(translations) => {
                 let mut locale_map = self.translations.entry(locale.to_string()).or_default();
-                let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                let prefix =
-                    if extension == "php" && !file_stem.is_empty() && !is_locale_code(file_stem) {
-                        Some(file_stem)
-                    } else {
-                        None
-                    };
 
                 for (key, value) in translations {
                     let full_key = match prefix {
@@ -242,8 +297,10 @@ impl TranslationStore {
 fn is_locale_code(s: &str) -> bool {
     let locale_patterns = [
         r"^[a-z]{2}$",
+        r"^[a-z]{2,3}[-_][A-Z][a-z]{3}$",
         r"^[a-z]{2}[-_][A-Z]{2}$",
         r"^[a-z]{2}[-_][a-z]{2}$",
+        r"^[a-z]{2,3}[-_][A-Z][a-z]{3}[-_][A-Z]{2}$",
     ];
 
     for pattern in &locale_patterns {
@@ -254,8 +311,8 @@ fn is_locale_code(s: &str) -> bool {
 
     let common_locales = [
         "en", "en-US", "en-GB", "es", "es-ES", "fr", "fr-FR", "de", "de-DE", "it", "it-IT", "pt",
-        "pt-BR", "ja", "ja-JP", "ko", "ko-KR", "zh", "zh-CN", "zh-TW", "ru", "ru-RU", "ar",
-        "ar-SA", "vi", "vi-VN",
+        "pt-BR", "ja", "ja-JP", "ko", "ko-KR", "zh", "zh-CN", "zh-TW", "zh-Hans", "zh-Hant", "ru",
+        "ru-RU", "ar", "ar-SA", "vi", "vi-VN",
     ];
 
     common_locales.contains(&s)
@@ -293,4 +350,166 @@ fn extract_locale_from_arb_filename(file_stem: &str) -> Option<String> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use crate::config::I18nConfig;
+
+    use super::TranslationStore;
+
+    fn temp_workspace(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("intl-lens-store-{name}-{unique}"))
+    }
+
+    #[test]
+    fn loads_json_file_name_as_namespace_when_enabled() {
+        let workspace = temp_workspace("namespace-top-level");
+        let locale_dir = workspace.join("src/locales/lang/en");
+        fs::create_dir_all(&locale_dir).expect("create locale directory");
+        fs::write(locale_dir.join("action.json"), r#"{"allocate":"Setting"}"#)
+            .expect("write translation file");
+
+        let config = I18nConfig {
+            locale_paths: vec!["src/locales".to_string()],
+            namespace_enabled: true,
+            ..I18nConfig::default()
+        };
+        let store = TranslationStore::new(workspace.clone());
+        store.scan_and_load_with_config(&config);
+
+        assert_eq!(
+            store.get_translation("action.allocate", "en"),
+            Some("Setting".to_string())
+        );
+
+        fs::remove_dir_all(workspace).expect("cleanup temp workspace");
+    }
+
+    #[test]
+    fn loads_js_translation_files() {
+        let workspace = temp_workspace("js-translations");
+        let locale_dir = workspace.join("locales/en");
+        fs::create_dir_all(&locale_dir).expect("create locale directory");
+        fs::write(
+            locale_dir.join("common.js"),
+            r#"
+                export default {
+                    save: "Save",
+                    status: {
+                        ready: "Ready",
+                    },
+                };
+            "#,
+        )
+        .expect("write translation file");
+
+        let config = I18nConfig {
+            locale_paths: vec!["locales".to_string()],
+            namespace_enabled: true,
+            ..I18nConfig::default()
+        };
+        let store = TranslationStore::new(workspace.clone());
+        store.scan_and_load_with_config(&config);
+
+        assert_eq!(
+            store.get_translation("common.save", "en"),
+            Some("Save".to_string())
+        );
+        assert_eq!(
+            store.get_translation("common.status.ready", "en"),
+            Some("Ready".to_string())
+        );
+
+        fs::remove_dir_all(workspace).expect("cleanup temp workspace");
+    }
+
+    #[test]
+    fn loads_nested_directories_as_namespace_when_enabled() {
+        let workspace = temp_workspace("namespace-nested");
+        let locale_dir = workspace.join("src/locales/lang/en/system");
+        fs::create_dir_all(&locale_dir).expect("create locale directory");
+        fs::write(locale_dir.join("user.json"), r#"{"title":"Users"}"#)
+            .expect("write translation file");
+
+        let config = I18nConfig {
+            locale_paths: vec!["src/locales".to_string()],
+            namespace_enabled: true,
+            ..I18nConfig::default()
+        };
+        let store = TranslationStore::new(workspace.clone());
+        store.scan_and_load_with_config(&config);
+
+        assert_eq!(
+            store.get_translation("system.user.title", "en"),
+            Some("Users".to_string())
+        );
+
+        fs::remove_dir_all(workspace).expect("cleanup temp workspace");
+    }
+
+    #[test]
+    fn keeps_previous_behavior_when_namespace_is_disabled() {
+        let workspace = temp_workspace("namespace-disabled");
+        let locale_dir = workspace.join("src/locales/lang/en");
+        fs::create_dir_all(&locale_dir).expect("create locale directory");
+        fs::write(locale_dir.join("action.json"), r#"{"allocate":"Setting"}"#)
+            .expect("write translation file");
+
+        let config = I18nConfig {
+            locale_paths: vec!["src/locales".to_string()],
+            namespace_enabled: false,
+            ..I18nConfig::default()
+        };
+        let store = TranslationStore::new(workspace.clone());
+        store.scan_and_load_with_config(&config);
+
+        assert_eq!(
+            store.get_translation("allocate", "en"),
+            Some("Setting".to_string())
+        );
+        assert_eq!(store.get_translation("action.allocate", "en"), None);
+
+        fs::remove_dir_all(workspace).expect("cleanup temp workspace");
+    }
+
+    #[test]
+    fn loads_script_tag_locale_directories() {
+        let workspace = temp_workspace("locale-script-tag");
+        let locale_dir = workspace.join("src/locale/zh-Hans");
+        fs::create_dir_all(&locale_dir).expect("create locale directory");
+        fs::write(
+            locale_dir.join("common.js"),
+            r#"
+                export default {
+                    title: "你好",
+                };
+            "#,
+        )
+        .expect("write translation file");
+
+        let config = I18nConfig {
+            locale_paths: vec!["src/locale".to_string()],
+            source_locale: "zh-Hans".to_string(),
+            namespace_enabled: true,
+            ..I18nConfig::default()
+        };
+        let store = TranslationStore::new(workspace.clone());
+        store.scan_and_load_with_config(&config);
+
+        assert_eq!(
+            store.get_translation("common.title", "zh-Hans"),
+            Some("你好".to_string())
+        );
+
+        fs::remove_dir_all(workspace).expect("cleanup temp workspace");
+    }
 }
