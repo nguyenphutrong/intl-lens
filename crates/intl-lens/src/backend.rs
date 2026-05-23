@@ -516,6 +516,10 @@ impl I18nBackend {
                 continue;
             }
 
+            if Self::path_matches_locale_glob(path, root, trimmed) {
+                return true;
+            }
+
             let candidate = if Path::new(trimmed).is_absolute() {
                 PathBuf::from(trimmed)
             } else {
@@ -532,6 +536,29 @@ impl I18nBackend {
         }
 
         false
+    }
+
+    fn path_matches_locale_glob(path: &Path, root: &Path, pattern: &str) -> bool {
+        if !pattern.contains('*') && !pattern.contains('?') && !pattern.contains('[') {
+            return false;
+        }
+
+        let Ok(glob) = globset::Glob::new(pattern) else {
+            return false;
+        };
+        let matcher = glob.compile_matcher();
+
+        let Ok(relative_path) = path.strip_prefix(root) else {
+            return false;
+        };
+
+        if matcher.is_match(relative_path) {
+            return true;
+        }
+
+        relative_path
+            .parent()
+            .is_some_and(|parent| matcher.is_match(parent))
     }
 
     async fn is_translation_uri(&self, uri: &Url) -> bool {
@@ -1501,6 +1528,19 @@ mod tests {
     fn test_detect_indent_tab() {
         let content = "{\n\t\"hello\": \"world\"\n}";
         assert_eq!(I18nBackend::detect_indent_unit(content), "\t");
+    }
+
+    #[test]
+    fn test_translation_file_matches_glob_locale_directory() {
+        let root = Path::new("/workspace/project");
+        let path = Path::new("/workspace/project/layers/foo/i18n/locales/en.json");
+        let locale_paths = vec!["**/*/i18n/locales".to_string()];
+
+        assert!(I18nBackend::is_translation_file_in_paths(
+            path,
+            root,
+            &locale_paths
+        ));
     }
 
     #[test]
