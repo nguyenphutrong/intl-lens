@@ -34,6 +34,10 @@ impl DocumentStore {
     pub fn get(&self, uri: &str) -> Option<&Document> {
         self.documents.get(uri)
     }
+
+    pub fn uris(&self) -> Vec<String> {
+        self.documents.keys().cloned().collect()
+    }
 }
 
 impl Default for DocumentStore {

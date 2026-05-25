@@ -107,6 +107,9 @@ fn default_patterns() -> Vec<String> {
         r#"useI18n\s*\(\s*\)\s*.*?\.t\s*\(\s*["']([^"']+)["']"#.to_string(),
         r#"formatMessage\s*\(\s*\{\s*id:\s*["']([^"']+)["']"#.to_string(),
         r#"<Trans\s+i18nKey\s*=\s*["']([^"']+)["']"#.to_string(),
+        // Svelte patterns (svelte-i18n)
+        r#"\$_\s*\(\s*["']([^"']+)["']"#.to_string(),
+        r#"\$format\s*\(\s*["']([^"']+)["']"#.to_string(),
         // Flutter/Dart patterns - easy_localization
         r#"['"]([^'"]+)['"]\s*\.tr\("#.to_string(),
         r#"['"]([^'"]+)['"]\s*\.tr\(\)"#.to_string(),
@@ -280,6 +283,66 @@ mod tests {
         let keys = finder.find_keys(content);
         assert_eq!(keys.len(), 1);
         assert_eq!(keys[0].key, "hello.world");
+    }
+
+    #[test]
+    fn test_find_svelte_dollar_underscore() {
+        let finder = KeyFinder::default();
+        let content = r#"const msg = $_("hello.world");"#;
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key, "hello.world");
+    }
+
+    #[test]
+    fn test_find_svelte_dollar_underscore_single_quotes() {
+        let finder = KeyFinder::default();
+        let content = r#"const msg = $_('common.greeting');"#;
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key, "common.greeting");
+    }
+
+    #[test]
+    fn test_find_svelte_dollar_format() {
+        let finder = KeyFinder::default();
+        let content = r#"const msg = $format("hello.world");"#;
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key, "hello.world");
+    }
+
+    #[test]
+    fn test_find_svelte_dollar_underscore_in_template() {
+        let finder = KeyFinder::default();
+        let content = r#"<p>{$_("page.title")}</p>"#;
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key, "page.title");
+    }
+
+    #[test]
+    fn test_find_svelte_dollar_t_in_template() {
+        let finder = KeyFinder::default();
+        let content = r#"<h1>{$t("welcome.heading")}</h1>"#;
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key, "welcome.heading");
+    }
+
+    #[test]
+    fn test_find_svelte_multiple_keys() {
+        let finder = KeyFinder::default();
+        let content = r#"
+            <h1>{$_("page.title")}</h1>
+            <p>{$_("page.description")}</p>
+            <button>{$t("common.submit")}</button>
+        "#;
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 3);
+        assert_eq!(keys[0].key, "page.title");
+        assert_eq!(keys[1].key, "page.description");
+        assert_eq!(keys[2].key, "common.submit");
     }
 
     #[test]

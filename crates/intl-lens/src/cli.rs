@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -124,13 +125,12 @@ async fn run_audit(
 
     // Filter by missing_in if specified
     if let Some(locales_str) = missing_in {
-        let locales: Vec<String> = locales_str
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .collect();
-        report
-            .missing
-            .retain(|m| m.missing_in.iter().any(|loc| locales.contains(loc)));
+        let locales: HashSet<&str> = locales_str.split(',').map(str::trim).collect();
+        report.missing.retain(|m| {
+            m.missing_in
+                .iter()
+                .any(|loc| locales.contains(loc.as_str()))
+        });
         // Recalculate summary
         report.summary.missing_translations = report.missing.len();
     }
@@ -322,7 +322,7 @@ fn format_terminal(report: &intl_lens::audit::AuditReport, suggest_fixes: bool) 
     ));
 
     // Summary
-    output.push_str(&format!("{}", "Summary\n".bold().underline()));
+    output.push_str(&"Summary\n".bold().underline().to_string());
     output.push_str(&format!(
         "  Total Keys:        {}\n",
         report.summary.total_keys.to_string().cyan()
@@ -413,7 +413,7 @@ fn format_terminal(report: &intl_lens::audit::AuditReport, suggest_fixes: bool) 
 
     // Unused keys
     if !report.unused.is_empty() {
-        output.push_str(&format!("{}", "Unused Keys\n".yellow().bold().underline()));
+        output.push_str(&"Unused Keys\n".yellow().bold().underline().to_string());
         for item in &report.unused {
             output.push_str(&format!("  {} {}\n", "•".yellow(), item.key.dimmed()));
             output.push_str(&format!(

@@ -112,6 +112,8 @@ Works out of the box with:
 | **easy_localization** | `'key'.tr()` `tr('key')` `context.tr('key')` |
 | **flutter_i18n** | `FlutterI18n.translate(context, 'key')` `I18nText('key')` |
 | **GetX** | `'key'.tr` `'key'.trParams({})` |
+| **svelte-i18n** | `$_("key")` `$t("key")` `$format("key")` |
+| **sveltekit-i18n** | `$t("key")` `t("key")` |
 | **Custom** | Configure your own patterns! |
 
 ## 🧩 Supported Languages
@@ -124,6 +126,7 @@ Works out of the box with:
 - Blade
 - Dart (Flutter)
 - Vue.js
+- Svelte
 
 ## ⚙️ Configuration
 
