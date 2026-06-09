@@ -60,7 +60,7 @@ impl I18nBackend {
         *self.key_finder.write().await = key_finder;
 
         let store = TranslationStore::new(root.clone());
-        store.scan_and_load(&config.locale_paths);
+        store.scan_and_load_config(&config);
 
         let locales = store.get_locales();
         let keys = store.get_all_keys();
@@ -341,7 +341,7 @@ impl I18nBackend {
 
         let translations = store.get_all_translations(key);
         if translations.is_empty() {
-            return None;
+            return Self::get_prefix_hover_content(store, key, &config.source_locale);
         }
 
         let mut content = format!("### 🌍 `{}`\n\n", key);
@@ -380,6 +380,47 @@ impl I18nBackend {
                 content.push_str(&line);
             }
         }
+
+        Some(content)
+    }
+
+    fn get_prefix_hover_content(
+        store: &TranslationStore,
+        key: &str,
+        source_locale: &str,
+    ) -> Option<String> {
+        let prefixed = store.get_prefixed_translations(key);
+        if prefixed.is_empty() {
+            return None;
+        }
+
+        let mut content = format!("### 🌍 `{}`\n\n", key);
+        content.push_str("Object translation prefix\n\n");
+
+        if let Some(source_entries) = prefixed.get(source_locale) {
+            for (child_key, entry) in source_entries.iter().take(8) {
+                content.push_str(&format!("- `{}`: {}", child_key, entry.value));
+
+                if let Some(location) = store.get_translation_location(child_key, source_locale) {
+                    if let Ok(uri) = Url::from_file_path(&location.file_path) {
+                        let link = format!("{}#L{}", uri, location.line + 1);
+                        content.push_str(&format!(" ([↗]({} \"Go to Definition\"))", link));
+                    }
+                }
+
+                content.push('\n');
+            }
+
+            if source_entries.len() > 8 {
+                content.push_str(&format!("- … and {} more\n", source_entries.len() - 8));
+            }
+        }
+
+        let mut locales: Vec<String> = prefixed.keys().cloned().collect();
+        locales.sort();
+
+        content.push_str("\n---\n\n");
+        content.push_str(&format!("Available in: {}", locales.join(", ")));
 
         Some(content)
     }
@@ -578,14 +619,14 @@ impl I18nBackend {
 
     async fn reload_translations(&self) {
         let workspace_root = { self.workspace_root.read().await.clone() };
-        let locale_paths = { self.config.read().await.locale_paths.clone() };
+        let config = { self.config.read().await.clone() };
 
         let Some(root) = workspace_root.as_ref() else {
             return;
         };
 
         let store = TranslationStore::new(root.clone());
-        store.scan_and_load(&locale_paths);
+        store.scan_and_load_config(&config);
 
         let locales = store.get_locales();
         let keys = store.get_all_keys();

@@ -326,7 +326,7 @@ mod tests {
 
         let config = I18nConfig::default();
         let store = TranslationStore::new(workspace.clone());
-        store.scan_and_load(&config.locale_paths);
+        store.scan_and_load_config(&config);
 
         let audit = AuditResult::new(workspace.clone(), config, store);
         let report = audit.generate_report();
