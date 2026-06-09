@@ -6,6 +6,9 @@ use globset::Glob;
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
+use crate::config::I18nConfig;
+use crate::i18n::namespace;
+
 use super::parser::TranslationParser;
 
 #[derive(Debug, Clone)]
@@ -36,6 +39,14 @@ impl TranslationStore {
     }
 
     pub fn scan_and_load(&self, locale_paths: &[String]) {
+        self.scan_and_load_with_options(locale_paths, false);
+    }
+
+    pub fn scan_and_load_config(&self, config: &I18nConfig) {
+        self.scan_and_load_with_options(&config.locale_paths, config.namespace_enabled);
+    }
+
+    fn scan_and_load_with_options(&self, locale_paths: &[String], namespace_enabled: bool) {
         for locale_path in locale_paths {
             let trimmed = locale_path.trim_end_matches(['/', '\\']);
             if trimmed.is_empty() {
@@ -43,20 +54,20 @@ impl TranslationStore {
             }
 
             if has_glob_meta(trimmed) {
-                self.scan_glob_path(trimmed);
+                self.scan_glob_path(trimmed, namespace_enabled);
                 continue;
             }
 
             let full_path = self.workspace_root.join(trimmed);
             if full_path.is_file() {
-                self.scan_file(&full_path);
+                self.scan_file(&full_path, namespace_enabled);
             } else if full_path.exists() {
-                self.scan_directory(&full_path);
+                self.scan_directory(&full_path, namespace_enabled);
             }
         }
     }
 
-    fn scan_glob_path(&self, locale_path: &str) {
+    fn scan_glob_path(&self, locale_path: &str, namespace_enabled: bool) {
         let Ok(glob) = Glob::new(locale_path) else {
             tracing::warn!("Invalid locale path glob: {}", locale_path);
             return;
@@ -78,14 +89,14 @@ impl TranslationStore {
             }
 
             if path.is_dir() {
-                self.scan_directory(path);
+                self.scan_directory(path, namespace_enabled);
             } else if path.is_file() {
-                self.scan_file(path);
+                self.scan_file(path, namespace_enabled);
             }
         }
     }
 
-    fn scan_directory(&self, dir: &Path) {
+    fn scan_directory(&self, dir: &Path, namespace_enabled: bool) {
         let json_glob = Glob::new("*.json").unwrap().compile_matcher();
         let yaml_glob = Glob::new("*.{yaml,yml}").unwrap().compile_matcher();
         let php_glob = Glob::new("*.php").unwrap().compile_matcher();
@@ -105,18 +116,18 @@ impl TranslationStore {
                     || php_glob.is_match(file_name)
                     || arb_glob.is_match(file_name))
             {
-                self.scan_file(path);
+                self.scan_file(path, namespace_enabled);
             }
         }
     }
 
-    fn scan_file(&self, path: &Path) {
+    fn scan_file(&self, path: &Path, namespace_enabled: bool) {
         if let Some(locale) = self.extract_locale_from_path(path) {
             self.locale_files
                 .entry(locale.clone())
                 .or_default()
                 .insert(path.to_path_buf());
-            self.load_translation_file(path, &locale);
+            self.load_translation_file(path, &locale, namespace_enabled);
         }
     }
 
@@ -148,24 +159,21 @@ impl TranslationStore {
         None
     }
 
-    fn load_translation_file(&self, path: &Path, locale: &str) {
+    fn load_translation_file(&self, path: &Path, locale: &str, namespace_enabled: bool) {
         match TranslationParser::parse_file(path) {
             Ok(translations) => {
                 let mut locale_map = self.translations.entry(locale.to_string()).or_default();
                 let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                let prefix =
-                    if extension == "php" && !file_stem.is_empty() && !is_locale_code(file_stem) {
-                        Some(file_stem)
-                    } else {
-                        None
-                    };
+                let prefix = namespace::file_namespace_prefix(
+                    extension,
+                    file_stem,
+                    namespace_enabled,
+                    is_locale_code,
+                );
 
                 for (key, value) in translations {
-                    let full_key = match prefix {
-                        Some(prefix) => format!("{}.{}", prefix, key),
-                        None => key,
-                    };
+                    let full_key = namespace::apply_file_namespace(key, prefix);
 
                     locale_map.insert(
                         full_key,
@@ -190,31 +198,74 @@ impl TranslationStore {
     }
 
     pub fn get_translation(&self, key: &str, locale: &str) -> Option<String> {
-        self.translations
-            .get(locale)
-            .and_then(|map| map.get(key).map(|e| e.value.clone()))
+        self.translations.get(locale).and_then(|map| {
+            namespace::key_lookup_variants(key)
+                .iter()
+                .find_map(|candidate| map.get(candidate).map(|e| e.value.clone()))
+        })
     }
 
     pub fn get_all_translations(&self, key: &str) -> HashMap<String, TranslationEntry> {
         let mut result = HashMap::new();
+        let candidates = namespace::key_lookup_variants(key);
         for entry in self.translations.iter() {
             let locale = entry.key();
-            if let Some(translation) = entry.value().get(key) {
+            if let Some(translation) = candidates
+                .iter()
+                .find_map(|candidate| entry.value().get(candidate))
+            {
                 result.insert(locale.clone(), translation.clone());
             }
         }
         result
     }
 
+    pub fn get_prefixed_translations(
+        &self,
+        key: &str,
+    ) -> HashMap<String, Vec<(String, TranslationEntry)>> {
+        let mut result = HashMap::new();
+        let prefixes: Vec<String> = namespace::key_lookup_variants(key)
+            .into_iter()
+            .map(|candidate| format!("{}.", candidate))
+            .collect();
+
+        for entry in self.translations.iter() {
+            let mut matches: Vec<(String, TranslationEntry)> = entry
+                .value()
+                .iter()
+                .filter(|(existing_key, _)| {
+                    prefixes
+                        .iter()
+                        .any(|prefix| existing_key.starts_with(prefix))
+                })
+                .map(|(key, translation)| (key.clone(), translation.clone()))
+                .collect();
+
+            matches.sort_by(|a, b| a.0.cmp(&b.0));
+
+            if !matches.is_empty() {
+                result.insert(entry.key().clone(), matches);
+            }
+        }
+
+        result
+    }
+
     pub fn get_translation_location(&self, key: &str, locale: &str) -> Option<TranslationLocation> {
         self.translations.get(locale).and_then(|map| {
-            map.get(key).map(|e| {
-                let line = Self::find_key_line_in_file(&e.file_path, key).unwrap_or(0);
-                TranslationLocation {
-                    file_path: e.file_path.clone(),
-                    line,
-                }
-            })
+            namespace::key_lookup_variants(key)
+                .iter()
+                .find_map(|candidate| {
+                    map.get(candidate).map(|e| {
+                        let line =
+                            Self::find_key_line_in_file(&e.file_path, candidate).unwrap_or(0);
+                        TranslationLocation {
+                            file_path: e.file_path.clone(),
+                            line,
+                        }
+                    })
+                })
         })
     }
 
@@ -255,9 +306,12 @@ impl TranslationStore {
     }
 
     pub fn key_exists(&self, key: &str) -> bool {
-        self.translations
-            .iter()
-            .any(|entry| entry.value().contains_key(key))
+        let candidates = namespace::key_lookup_variants(key);
+        self.translations.iter().any(|entry| {
+            candidates
+                .iter()
+                .any(|candidate| key_or_prefix_exists(entry.value(), candidate))
+        })
     }
 
     pub fn get_locale_file_paths(&self, locale: &str) -> Vec<PathBuf> {
@@ -277,11 +331,25 @@ impl TranslationStore {
             .filter(|locale| {
                 self.translations
                     .get(locale)
-                    .map(|m| !m.contains_key(key))
+                    .map(|m| {
+                        let candidates = namespace::key_lookup_variants(key);
+                        !candidates
+                            .iter()
+                            .any(|candidate| key_or_prefix_exists(&m, candidate))
+                    })
                     .unwrap_or(true)
             })
             .collect()
     }
+}
+
+fn key_or_prefix_exists(map: &HashMap<String, TranslationEntry>, key: &str) -> bool {
+    if map.contains_key(key) {
+        return true;
+    }
+
+    let prefix = format!("{}.", key);
+    map.keys().any(|existing| existing.starts_with(&prefix))
 }
 
 fn is_locale_code(s: &str) -> bool {
@@ -402,6 +470,96 @@ mod tests {
             store.get_translation("hello", "fr").as_deref(),
             Some("Bonjour")
         );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn scan_and_load_config_prefixes_json_namespace_files() {
+        let root = test_workspace("namespace-json-files");
+        let locale_dir = root.join("public/static/locales/en");
+        fs::create_dir_all(&locale_dir).expect("create locale dir");
+        fs::write(
+            locale_dir.join("common.json"),
+            r#"{"buttons":{"save":"Save"}}"#,
+        )
+        .expect("write namespace locale");
+
+        let config = I18nConfig {
+            locale_paths: vec!["public/static/locales".to_string()],
+            namespace_enabled: true,
+            ..Default::default()
+        };
+        let store = TranslationStore::new(root.clone());
+        store.scan_and_load_config(&config);
+
+        assert_eq!(
+            store
+                .get_translation("common.buttons.save", "en")
+                .as_deref(),
+            Some("Save")
+        );
+        assert_eq!(
+            store
+                .get_translation("common:buttons.save", "en")
+                .as_deref(),
+            Some("Save")
+        );
+        assert!(store.key_exists("common.buttons"));
+        assert!(store.get_missing_locales("common.buttons").is_empty());
+
+        let prefixed = store.get_prefixed_translations("common.buttons");
+        assert_eq!(prefixed["en"].len(), 1);
+        assert_eq!(prefixed["en"][0].0, "common.buttons.save");
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn scan_and_load_config_does_not_duplicate_existing_namespace_root() {
+        let root = test_workspace("namespace-existing-root");
+        let locale_dir = root.join("public/static/locales/en");
+        fs::create_dir_all(&locale_dir).expect("create locale dir");
+        fs::write(
+            locale_dir.join("signin.json"),
+            r#"{"signin":{"description":"Welcome"}}"#,
+        )
+        .expect("write namespace locale");
+
+        let config = I18nConfig {
+            locale_paths: vec!["public/static/locales".to_string()],
+            namespace_enabled: true,
+            ..Default::default()
+        };
+        let store = TranslationStore::new(root.clone());
+        store.scan_and_load_config(&config);
+
+        assert_eq!(
+            store.get_translation("signin.description", "en").as_deref(),
+            Some("Welcome")
+        );
+        assert!(store
+            .get_translation("signin.signin.description", "en")
+            .is_none());
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn scan_and_load_keeps_json_namespace_disabled_behavior() {
+        let root = test_workspace("namespace-disabled-json-files");
+        let locale_dir = root.join("locales/en");
+        fs::create_dir_all(&locale_dir).expect("create locale dir");
+        fs::write(locale_dir.join("common.json"), r#"{"hello":"Hello"}"#).expect("write locale");
+
+        let store = TranslationStore::new(root.clone());
+        store.scan_and_load(&["locales".to_string()]);
+
+        assert_eq!(
+            store.get_translation("hello", "en").as_deref(),
+            Some("Hello")
+        );
+        assert!(store.get_translation("common.hello", "en").is_none());
 
         fs::remove_dir_all(root).ok();
     }

@@ -1,5 +1,7 @@
 use regex::Regex;
 
+use super::namespace;
+
 #[derive(Debug, Clone)]
 pub struct FoundKey {
     pub key: String,
@@ -25,31 +27,107 @@ impl KeyFinder {
 
     pub fn find_keys(&self, content: &str) -> Vec<FoundKey> {
         let mut found_keys = Vec::new();
+        let namespace_context = namespace::infer_namespace_context(content);
 
         for pattern in &self.patterns {
             for cap in pattern.captures_iter(content) {
                 if let Some(key_match) = cap.get(1) {
-                    let key = key_match.as_str().to_string();
-                    let start_offset = key_match.start();
-                    let end_offset = key_match.end();
-
-                    let (line, start_char, end_char) =
-                        Self::offset_to_position(content, start_offset, end_offset);
-
-                    found_keys.push(FoundKey {
-                        key,
-                        start_offset,
-                        line,
-                        start_char,
-                        end_char,
-                    });
+                    let raw_key = key_match.as_str();
+                    self.push_found_key(
+                        content,
+                        &namespace_context,
+                        raw_key,
+                        key_match,
+                        &mut found_keys,
+                    );
                 }
             }
         }
 
+        self.find_dynamic_template_prefixes(content, &namespace_context, &mut found_keys);
+
         found_keys.sort_by_key(|k| k.start_offset);
         found_keys.dedup_by(|a, b| a.start_offset == b.start_offset);
         found_keys
+    }
+
+    fn push_found_key(
+        &self,
+        content: &str,
+        namespace_context: &namespace::NamespaceContext,
+        raw_key: &str,
+        key_match: regex::Match<'_>,
+        found_keys: &mut Vec<FoundKey>,
+    ) {
+        self.push_found_key_with_range(
+            content,
+            namespace_context,
+            raw_key,
+            key_match.start(),
+            key_match.end(),
+            found_keys,
+        );
+    }
+
+    fn push_found_key_with_range(
+        &self,
+        content: &str,
+        namespace_context: &namespace::NamespaceContext,
+        raw_key: &str,
+        start_offset: usize,
+        end_offset: usize,
+        found_keys: &mut Vec<FoundKey>,
+    ) {
+        if raw_key.is_empty() {
+            return;
+        }
+
+        let key = namespace::apply_namespace_context(raw_key, namespace_context);
+
+        let (line, start_char, end_char) =
+            Self::offset_to_position(content, start_offset, end_offset);
+
+        found_keys.push(FoundKey {
+            key,
+            start_offset,
+            line,
+            start_char,
+            end_char,
+        });
+    }
+
+    fn find_dynamic_template_prefixes(
+        &self,
+        content: &str,
+        namespace_context: &namespace::NamespaceContext,
+        found_keys: &mut Vec<FoundKey>,
+    ) {
+        let Ok(pattern) =
+            Regex::new(r#"(?:^|[^\w.])(?:t|\$t|\$tc|\$te|i18n\.t)\s*\(\s*`([^`$]+?)\s*\$\{"#)
+        else {
+            return;
+        };
+
+        for cap in pattern.captures_iter(content) {
+            let Some(key_match) = cap.get(1) else {
+                continue;
+            };
+
+            let raw_key = key_match.as_str().trim_end_matches('.');
+            let end_offset = content[key_match.start()..]
+                .find('`')
+                .map(|relative| key_match.start() + relative)
+                .unwrap_or_else(|| key_match.end());
+
+            self.push_found_key_with_range(
+                content,
+                namespace_context,
+                raw_key,
+                key_match.start(),
+                end_offset,
+                found_keys,
+            );
+        }
     }
 
     pub fn find_key_at_position(
@@ -183,6 +261,86 @@ mod tests {
 
         let not_found = finder.find_key_at_position(content, 0, 0);
         assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn test_applies_single_use_translation_namespace() {
+        let finder = KeyFinder::default();
+        let content = r#"
+            const { t } = useTranslation('common');
+            const label = t('buttons.save');
+        "#;
+
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key, "common.buttons.save");
+    }
+
+    #[test]
+    fn test_applies_first_use_translation_array_namespace() {
+        let finder = KeyFinder::default();
+        let content = r#"
+            const { t } = useTranslation(['member', 'common']);
+            const label = t('memberLabel.color');
+        "#;
+
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key, "member.memberLabel.color");
+    }
+
+    #[test]
+    fn test_keeps_explicit_colon_namespace() {
+        let finder = KeyFinder::default();
+        let content = r#"
+            const { t } = useTranslation('common');
+            const label = t('common:buttons.save');
+        "#;
+
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key, "common:buttons.save");
+    }
+
+    #[test]
+    fn test_find_dynamic_template_prefix() {
+        let finder = KeyFinder::default();
+        let content = r#"
+            const options = Object.keys(t('status', { returnObjects: true })).map(key => {
+                return t(`status.${key}`);
+            });
+        "#;
+
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 2);
+        assert_eq!(keys[0].key, "status");
+        assert_eq!(keys[1].key, "status");
+
+        let dynamic_key = &keys[1];
+        assert!(dynamic_key.end_char > dynamic_key.start_char + "status".len());
+        assert!(finder
+            .find_key_at_position(content, dynamic_key.line, dynamic_key.start_char)
+            .is_some());
+        assert!(finder
+            .find_key_at_position(
+                content,
+                dynamic_key.line,
+                dynamic_key.end_char.saturating_sub(1)
+            )
+            .is_some());
+    }
+
+    #[test]
+    fn test_does_not_double_prefix_dot_namespace() {
+        let finder = KeyFinder::default();
+        let content = r#"
+            const { t } = useTranslation('common');
+            const label = t('common.buttons.save');
+        "#;
+
+        let keys = finder.find_keys(content);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key, "common.buttons.save");
     }
 
     #[test]
