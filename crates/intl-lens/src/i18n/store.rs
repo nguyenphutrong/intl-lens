@@ -24,14 +24,16 @@ pub struct TranslationStore {
     translations: DashMap<String, HashMap<String, TranslationEntry>>,
     locale_files: DashMap<String, HashSet<PathBuf>>,
     workspace_root: PathBuf,
+    key_separator: String,
 }
 
 impl TranslationStore {
-    pub fn new(workspace_root: PathBuf) -> Self {
+    pub fn new(workspace_root: PathBuf, key_separator: String) -> Self {
         Self {
             translations: DashMap::new(),
             locale_files: DashMap::new(),
             workspace_root,
+            key_separator,
         }
     }
 
@@ -149,7 +151,7 @@ impl TranslationStore {
     }
 
     fn load_translation_file(&self, path: &Path, locale: &str) {
-        match TranslationParser::parse_file(path) {
+        match TranslationParser::parse_file(path, &self.key_separator) {
             Ok(translations) => {
                 let mut locale_map = self.translations.entry(locale.to_string()).or_default();
                 let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -163,7 +165,7 @@ impl TranslationStore {
 
                 for (key, value) in translations {
                     let full_key = match prefix {
-                        Some(prefix) => format!("{}.{}", prefix, key),
+                        Some(prefix) => format!("{}{}{}", prefix, self.key_separator, key),
                         None => key,
                     };
 
@@ -209,7 +211,7 @@ impl TranslationStore {
     pub fn get_translation_location(&self, key: &str, locale: &str) -> Option<TranslationLocation> {
         self.translations.get(locale).and_then(|map| {
             map.get(key).map(|e| {
-                let line = Self::find_key_line_in_file(&e.file_path, key).unwrap_or(0);
+                let line = Self::find_key_line_in_file(&e.file_path, key, &self.key_separator).unwrap_or(0);
                 TranslationLocation {
                     file_path: e.file_path.clone(),
                     line,
@@ -218,10 +220,10 @@ impl TranslationStore {
         })
     }
 
-    fn find_key_line_in_file(file_path: &Path, key: &str) -> Option<usize> {
+    fn find_key_line_in_file(file_path: &Path, key: &str, separator: &str) -> Option<usize> {
         let content = std::fs::read_to_string(file_path).ok()?;
 
-        let last_part = key.split('.').next_back().unwrap_or(key);
+        let last_part = key.rsplit(separator).next().unwrap_or(key);
         let search_patterns = [
             format!("\"{}\"", last_part),
             format!("'{}'", last_part),
@@ -377,7 +379,7 @@ mod tests {
         )
         .expect("write en locale");
 
-        let store = TranslationStore::new(root.clone());
+        let store = TranslationStore::new(root.clone(), ".".to_string());
         store.scan_and_load(&["**/*/i18n/locales".to_string()]);
 
         assert_eq!(
@@ -395,7 +397,7 @@ mod tests {
         fs::create_dir_all(&locale_dir).expect("create locale dir");
         fs::write(locale_dir.join("fr.json"), r#"{"hello":"Bonjour"}"#).expect("write fr locale");
 
-        let store = TranslationStore::new(root.clone());
+        let store = TranslationStore::new(root.clone(), ".".to_string());
         store.scan_and_load(&["layers/*/i18n/locales/*.json".to_string()]);
 
         assert_eq!(

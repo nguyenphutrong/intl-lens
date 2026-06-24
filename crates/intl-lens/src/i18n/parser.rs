@@ -8,15 +8,15 @@ use serde_yaml::Value as YamlValue;
 pub struct TranslationParser;
 
 impl TranslationParser {
-    pub fn parse_file(path: &Path) -> Result<HashMap<String, String>> {
+    pub fn parse_file(path: &Path, separator: &str) -> Result<HashMap<String, String>> {
         let content = std::fs::read_to_string(path)?;
         let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         match extension {
-            "yaml" | "yml" => Self::parse_yaml(&content),
-            "php" => Self::parse_php(&content),
+            "yaml" | "yml" => Self::parse_yaml(&content, separator),
+            "php" => Self::parse_php(&content, separator),
             "arb" => Self::parse_arb(&content),
-            _ => Self::parse_json(&content),
+            _ => Self::parse_json(&content, separator),
         }
     }
 
@@ -43,38 +43,38 @@ impl TranslationParser {
         Ok(result)
     }
 
-    pub fn parse_php(content: &str) -> Result<HashMap<String, String>> {
+    pub fn parse_php(content: &str, separator: &str) -> Result<HashMap<String, String>> {
         let mut parser = PhpParser::new(content);
         let value = parser.parse_root_array()?;
         let mut result = HashMap::new();
-        flatten_php(&value, String::new(), &mut result);
+        flatten_php(&value, String::new(), &mut result, separator);
         Ok(result)
     }
 
-    pub fn parse_json(content: &str) -> Result<HashMap<String, String>> {
+    pub fn parse_json(content: &str, separator: &str) -> Result<HashMap<String, String>> {
         let value: JsonValue = serde_json::from_str(content)?;
         let mut result = HashMap::new();
-        Self::flatten_json(&value, String::new(), &mut result);
+        Self::flatten_json(&value, String::new(), &mut result, separator);
         Ok(result)
     }
 
-    pub fn parse_yaml(content: &str) -> Result<HashMap<String, String>> {
+    pub fn parse_yaml(content: &str, separator: &str) -> Result<HashMap<String, String>> {
         let value: YamlValue = serde_yaml::from_str(content)?;
         let mut result = HashMap::new();
-        Self::flatten_yaml(&value, String::new(), &mut result);
+        Self::flatten_yaml(&value, String::new(), &mut result, separator);
         Ok(result)
     }
 
-    fn flatten_json(value: &JsonValue, prefix: String, result: &mut HashMap<String, String>) {
+    fn flatten_json(value: &JsonValue, prefix: String, result: &mut HashMap<String, String>, separator: &str) {
         match value {
             JsonValue::Object(map) => {
                 for (key, val) in map {
                     let new_key = if prefix.is_empty() {
                         key.clone()
                     } else {
-                        format!("{}.{}", prefix, key)
+                        format!("{}{}{}", prefix, separator, key)
                     };
-                    Self::flatten_json(val, new_key, result);
+                    Self::flatten_json(val, new_key, result, separator);
                 }
             }
             JsonValue::String(s) => {
@@ -88,15 +88,15 @@ impl TranslationParser {
             }
             JsonValue::Array(arr) => {
                 for (i, val) in arr.iter().enumerate() {
-                    let new_key = format!("{}.{}", prefix, i);
-                    Self::flatten_json(val, new_key, result);
+                    let new_key = format!("{}{}{}", prefix, separator, i);
+                    Self::flatten_json(val, new_key, result, separator);
                 }
             }
             JsonValue::Null => {}
         }
     }
 
-    fn flatten_yaml(value: &YamlValue, prefix: String, result: &mut HashMap<String, String>) {
+    fn flatten_yaml(value: &YamlValue, prefix: String, result: &mut HashMap<String, String>, separator: &str) {
         match value {
             YamlValue::Mapping(map) => {
                 for (key, val) in map {
@@ -107,9 +107,9 @@ impl TranslationParser {
                     let new_key = if prefix.is_empty() {
                         key_str
                     } else {
-                        format!("{}.{}", prefix, key_str)
+                        format!("{}{}{}", prefix, separator, key_str)
                     };
-                    Self::flatten_yaml(val, new_key, result);
+                    Self::flatten_yaml(val, new_key, result, separator);
                 }
             }
             YamlValue::String(s) => {
@@ -123,8 +123,8 @@ impl TranslationParser {
             }
             YamlValue::Sequence(arr) => {
                 for (i, val) in arr.iter().enumerate() {
-                    let new_key = format!("{}.{}", prefix, i);
-                    Self::flatten_yaml(val, new_key, result);
+                    let new_key = format!("{}{}{}", prefix, separator, i);
+                    Self::flatten_yaml(val, new_key, result, separator);
                 }
             }
             YamlValue::Null | YamlValue::Tagged(_) => {}
@@ -474,7 +474,7 @@ fn value_to_key(value: &PhpValue) -> String {
     }
 }
 
-fn flatten_php(value: &PhpValue, prefix: String, result: &mut HashMap<String, String>) {
+fn flatten_php(value: &PhpValue, prefix: String, result: &mut HashMap<String, String>, separator: &str) {
     match value {
         PhpValue::String(value) => {
             if !prefix.is_empty() {
@@ -511,9 +511,9 @@ fn flatten_php(value: &PhpValue, prefix: String, result: &mut HashMap<String, St
                 let new_prefix = if prefix.is_empty() {
                     key
                 } else {
-                    format!("{}.{}", prefix, key)
+                    format!("{}{}{}", prefix, separator, key)
                 };
-                flatten_php(entry, new_prefix, result);
+                flatten_php(entry, new_prefix, result, separator);
             }
         }
     }
@@ -526,7 +526,7 @@ mod tests {
     #[test]
     fn test_parse_flat_json() {
         let json = r#"{"hello": "Hello", "world": "World"}"#;
-        let result = TranslationParser::parse_json(json).unwrap();
+        let result = TranslationParser::parse_json(json, ".").unwrap();
         assert_eq!(result.get("hello"), Some(&"Hello".to_string()));
         assert_eq!(result.get("world"), Some(&"World".to_string()));
     }
@@ -534,7 +534,7 @@ mod tests {
     #[test]
     fn test_parse_nested_json() {
         let json = r#"{"common": {"hello": "Hello", "bye": "Goodbye"}}"#;
-        let result = TranslationParser::parse_json(json).unwrap();
+        let result = TranslationParser::parse_json(json, ".").unwrap();
         assert_eq!(result.get("common.hello"), Some(&"Hello".to_string()));
         assert_eq!(result.get("common.bye"), Some(&"Goodbye".to_string()));
     }
@@ -542,14 +542,22 @@ mod tests {
     #[test]
     fn test_parse_deeply_nested() {
         let json = r#"{"a": {"b": {"c": "deep"}}}"#;
-        let result = TranslationParser::parse_json(json).unwrap();
+        let result = TranslationParser::parse_json(json, ".").unwrap();
         assert_eq!(result.get("a.b.c"), Some(&"deep".to_string()));
+    }
+
+    #[test]
+    fn test_parse_nested_json_custom_separator() {
+        let json = r#"{"common": {"hello": "Hello", "bye": "Goodbye"}}"#;
+        let result = TranslationParser::parse_json(json, ":").unwrap();
+        assert_eq!(result.get("common:hello"), Some(&"Hello".to_string()));
+        assert_eq!(result.get("common:bye"), Some(&"Goodbye".to_string()));
     }
 
     #[test]
     fn test_parse_flat_yaml() {
         let yaml = "hello: Hello\nworld: World";
-        let result = TranslationParser::parse_yaml(yaml).unwrap();
+        let result = TranslationParser::parse_yaml(yaml, ".").unwrap();
         assert_eq!(result.get("hello"), Some(&"Hello".to_string()));
         assert_eq!(result.get("world"), Some(&"World".to_string()));
     }
@@ -557,7 +565,7 @@ mod tests {
     #[test]
     fn test_parse_nested_yaml() {
         let yaml = "common:\n  hello: Hello\n  bye: Goodbye";
-        let result = TranslationParser::parse_yaml(yaml).unwrap();
+        let result = TranslationParser::parse_yaml(yaml, ".").unwrap();
         assert_eq!(result.get("common.hello"), Some(&"Hello".to_string()));
         assert_eq!(result.get("common.bye"), Some(&"Goodbye".to_string()));
     }
@@ -565,7 +573,7 @@ mod tests {
     #[test]
     fn test_parse_flat_php() {
         let php = r#"<?php return ['hello' => 'Hello', "world" => "World"];"#;
-        let result = TranslationParser::parse_php(php).unwrap();
+        let result = TranslationParser::parse_php(php, ".").unwrap();
         assert_eq!(result.get("hello"), Some(&"Hello".to_string()));
         assert_eq!(result.get("world"), Some(&"World".to_string()));
     }
@@ -579,7 +587,7 @@ mod tests {
                 'bye' => "Goodbye",
             ],
         ];"#;
-        let result = TranslationParser::parse_php(php).unwrap();
+        let result = TranslationParser::parse_php(php, ".").unwrap();
         assert_eq!(result.get("common.hello"), Some(&"Hello".to_string()));
         assert_eq!(result.get("common.bye"), Some(&"Goodbye".to_string()));
     }

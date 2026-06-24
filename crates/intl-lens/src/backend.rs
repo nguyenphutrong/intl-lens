@@ -59,7 +59,7 @@ impl I18nBackend {
         let key_finder = KeyFinder::new(&config.function_patterns);
         *self.key_finder.write().await = key_finder;
 
-        let store = TranslationStore::new(root.clone());
+        let store = TranslationStore::new(root.clone(), config.separator().to_string());
         store.scan_and_load(&config.locale_paths);
 
         let locales = store.get_locales();
@@ -578,13 +578,15 @@ impl I18nBackend {
 
     async fn reload_translations(&self) {
         let workspace_root = { self.workspace_root.read().await.clone() };
-        let locale_paths = { self.config.read().await.locale_paths.clone() };
+        let config = { self.config.read().await.clone() };
+        let locale_paths = config.locale_paths.clone();
+        let separator = config.separator().to_string();
 
         let Some(root) = workspace_root.as_ref() else {
             return;
         };
 
-        let store = TranslationStore::new(root.clone());
+        let store = TranslationStore::new(root.clone(), separator);
         store.scan_and_load(&locale_paths);
 
         let locales = store.get_locales();
@@ -1051,6 +1053,10 @@ impl LanguageServer for I18nBackend {
             raw_value
         );
 
+        let config = self.config.read().await;
+        let separator = config.separator().to_string();
+        drop(config);
+
         let translation_store = self.translation_store.read().await;
         let Some(store) = translation_store.as_ref() else {
             tracing::warn!("createRawTranslationKey: no translation store");
@@ -1085,7 +1091,7 @@ impl LanguageServer for I18nBackend {
                 }
             };
 
-            let result = Self::insert_key_into_json(&file_content, &key, &raw_value);
+            let result = Self::insert_key_into_json(&file_content, &key, &raw_value, &separator);
             let Some((new_content, _, _)) = result else {
                 tracing::warn!("Failed to insert key into {:?}", file_path);
                 continue;
@@ -1198,11 +1204,11 @@ impl I18nBackend {
     /// Insert a (possibly nested) key into a JSON string with the given value,
     /// using text-based insertion to preserve existing formatting and key order.
     /// Returns `(new_content, cursor_line, cursor_character)`.
-    fn insert_key_into_json(content: &str, key: &str, value: &str) -> Option<(String, u32, u32)> {
+    fn insert_key_into_json(content: &str, key: &str, value: &str, separator: &str) -> Option<(String, u32, u32)> {
         // Validate JSON and detect style
         let root: Value = serde_json::from_str(content).ok()?;
         let root_obj = root.as_object()?;
-        let parts: Vec<&str> = key.split('.').collect();
+        let parts: Vec<&str> = key.split(separator).collect();
         let indent = Self::detect_indent_unit(content);
 
         // Flat style: all top-level values are non-objects (i.e. no nesting)
@@ -1457,7 +1463,7 @@ mod tests {
     #[test]
     fn test_insert_flat_key_into_flat_json() {
         let content = "{\n  \"hello\": \"world\",\n  \"foo\": \"bar\"\n}\n";
-        let result = I18nBackend::insert_key_into_json(content, "new.key", "_new.key_");
+        let result = I18nBackend::insert_key_into_json(content, "new.key", "_new.key_", ".");
         assert!(result.is_some());
         let (new_content, cursor_line, _cursor_col) = result.unwrap();
         assert!(new_content.contains("\"new.key\": \"_new.key_\""));
@@ -1469,7 +1475,7 @@ mod tests {
     fn test_insert_nested_key_into_existing_parent() {
         let content = "{\n  \"common\": {\n    \"hello\": \"world\"\n  }\n}\n";
         let result =
-            I18nBackend::insert_key_into_json(content, "common.goodbye", "_common.goodbye_");
+            I18nBackend::insert_key_into_json(content, "common.goodbye", "_common.goodbye_", ".");
         assert!(result.is_some());
         let (new_content, cursor_line, _cursor_col) = result.unwrap();
         assert!(new_content.contains("\"goodbye\": \"_common.goodbye_\""));
@@ -1481,7 +1487,7 @@ mod tests {
     fn test_insert_creates_intermediate_objects() {
         let content = "{\n  \"common\": {\n    \"hello\": \"world\"\n  }\n}\n";
         let result =
-            I18nBackend::insert_key_into_json(content, "pages.home.title", "_pages.home.title_");
+            I18nBackend::insert_key_into_json(content, "pages.home.title", "_pages.home.title_", ".");
         assert!(result.is_some());
         let (new_content, cursor_line, _cursor_col) = result.unwrap();
         assert!(new_content.contains("\"pages\": {"));
@@ -1494,7 +1500,7 @@ mod tests {
     #[test]
     fn test_insert_single_segment_key() {
         let content = "{\n  \"hello\": \"world\"\n}\n";
-        let result = I18nBackend::insert_key_into_json(content, "goodbye", "_goodbye_");
+        let result = I18nBackend::insert_key_into_json(content, "goodbye", "_goodbye_", ".");
         assert!(result.is_some());
         let (new_content, _, _) = result.unwrap();
         assert!(new_content.contains("\"goodbye\": \"_goodbye_\""));
@@ -1504,7 +1510,7 @@ mod tests {
     #[test]
     fn test_insert_preserves_existing_content() {
         let content = "{\n  \"hello\": \"world\",\n  \"foo\": \"bar\"\n}\n";
-        let result = I18nBackend::insert_key_into_json(content, "baz", "_baz_");
+        let result = I18nBackend::insert_key_into_json(content, "baz", "_baz_", ".");
         assert!(result.is_some());
         let (new_content, _, _) = result.unwrap();
         assert!(new_content.contains("\"hello\": \"world\""));
@@ -1546,7 +1552,7 @@ mod tests {
     #[test]
     fn test_cursor_position_points_inside_value_quotes() {
         let content = "{\n  \"hello\": \"world\"\n}\n";
-        let result = I18nBackend::insert_key_into_json(content, "test", "_test_");
+        let result = I18nBackend::insert_key_into_json(content, "test", "_test_", ".");
         let (_new_content, cursor_line, cursor_col) = result.unwrap();
         let line = _new_content.lines().nth(cursor_line as usize).unwrap();
         let before_cursor = &line[..cursor_col as usize];
@@ -1561,7 +1567,7 @@ mod tests {
     fn test_insert_adds_trailing_comma_to_previous_entry() {
         // No trailing comma after "world"
         let content = "{\n  \"hello\": \"world\"\n}\n";
-        let result = I18nBackend::insert_key_into_json(content, "goodbye", "_goodbye_");
+        let result = I18nBackend::insert_key_into_json(content, "goodbye", "_goodbye_", ".");
         assert!(result.is_some());
         let (new_content, _, _) = result.unwrap();
         assert!(
@@ -1576,7 +1582,7 @@ mod tests {
         let content =
             "{\n  \"buttons\": {\n    \"save\": \"Save\"\n  },\n  \"labels\": {\n    \"name\": \"Name\"\n  }\n}\n";
         let result =
-            I18nBackend::insert_key_into_json(content, "buttons.cancel", "_buttons.cancel_");
+            I18nBackend::insert_key_into_json(content, "buttons.cancel", "_buttons.cancel_", ".");
         assert!(result.is_some());
         let (new_content, cursor_line, _) = result.unwrap();
         assert!(new_content.contains("\"cancel\": \"_buttons.cancel_\""));
@@ -1607,7 +1613,7 @@ mod tests {
     fn test_insert_deeply_nested_into_flat_file_uses_dotted_key() {
         // When the file is flat-style (no nested objects), the key is inserted as a dotted string
         let content = "{\n  \"existing\": \"value\"\n}\n";
-        let result = I18nBackend::insert_key_into_json(content, "a.b.c.d", "_a.b.c.d_");
+        let result = I18nBackend::insert_key_into_json(content, "a.b.c.d", "_a.b.c.d_", ".");
         assert!(result.is_some());
         let (new_content, cursor_line, _) = result.unwrap();
         assert!(
@@ -1623,7 +1629,7 @@ mod tests {
     fn test_insert_deeply_nested_creates_all_parents() {
         // When the file already has nested objects, new keys should be nested too
         let content = "{\n  \"common\": {\n    \"hello\": \"world\"\n  }\n}\n";
-        let result = I18nBackend::insert_key_into_json(content, "a.b.c.d", "_a.b.c.d_");
+        let result = I18nBackend::insert_key_into_json(content, "a.b.c.d", "_a.b.c.d_", ".");
         assert!(result.is_some());
         let (new_content, cursor_line, _) = result.unwrap();
         assert!(new_content.contains("\"a\": {"));
@@ -1654,7 +1660,7 @@ mod tests {
     #[test]
     fn test_invalid_json_returns_none() {
         let content = "not valid json";
-        let result = I18nBackend::insert_key_into_json(content, "test", "_test_");
+        let result = I18nBackend::insert_key_into_json(content, "test", "_test_", ".");
         assert!(result.is_none());
     }
 }

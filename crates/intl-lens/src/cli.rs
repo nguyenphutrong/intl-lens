@@ -113,7 +113,7 @@ async fn run_audit(
     let config = I18nConfig::load_from_workspace(workspace);
 
     pb.set_message("Scanning translation files...");
-    let store = TranslationStore::new(workspace.to_path_buf());
+    let store = TranslationStore::new(workspace.to_path_buf(), config.separator().to_string());
     store.scan_and_load(&config.locale_paths);
 
     pb.set_message("Scanning codebase...");
@@ -178,7 +178,7 @@ async fn run_check(
     }
 
     // Load translations to check existence
-    let store = TranslationStore::new(workspace.to_path_buf());
+    let store = TranslationStore::new(workspace.to_path_buf(), config.separator().to_string());
     store.scan_and_load(&config.locale_paths);
 
     let mut missing = Vec::new();

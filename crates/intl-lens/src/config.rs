@@ -21,6 +21,9 @@ pub struct I18nConfig {
 
     #[serde(default = "default_function_patterns")]
     pub function_patterns: Vec<String>,
+
+    #[serde(default)]
+    pub key_separator: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -40,11 +43,16 @@ impl Default for I18nConfig {
             key_style: default_key_style(),
             namespace_enabled: false,
             function_patterns: default_function_patterns(),
+            key_separator: None,
         }
     }
 }
 
 impl I18nConfig {
+    pub fn separator(&self) -> &str {
+        self.key_separator.as_deref().unwrap_or(".")
+    }
+
     pub fn load_from_workspace(root: &Path) -> Self {
         let config_paths = [
             root.join(".i18n-ally.json"),

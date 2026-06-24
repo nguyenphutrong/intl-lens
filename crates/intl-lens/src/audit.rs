@@ -325,7 +325,7 @@ mod tests {
             .expect("write vi translations");
 
         let config = I18nConfig::default();
-        let store = TranslationStore::new(workspace.clone());
+        let store = TranslationStore::new(workspace.clone(), config.separator().to_string());
         store.scan_and_load(&config.locale_paths);
 
         let audit = AuditResult::new(workspace.clone(), config, store);
