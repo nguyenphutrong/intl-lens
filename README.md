@@ -199,6 +199,7 @@ Available tools:
 | `validate_placeholders` | Check placeholder consistency for one key |
 | `get_translation_context` | Return locale values, missing locales, usage context, and target files for one key |
 | `review_i18n_pr` | Return a structured PR-style i18n review and Markdown comment |
+| `extract_hardcoded_strings` | Return candidate hardcoded user-facing strings from source files |
 
 Available resources:
 

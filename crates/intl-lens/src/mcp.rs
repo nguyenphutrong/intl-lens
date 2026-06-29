@@ -11,6 +11,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use walkdir::WalkDir;
 
 #[derive(Debug, Deserialize)]
 struct JsonRpcRequest {
@@ -107,6 +108,15 @@ struct TranslationContextParams {
 struct ReviewI18nPrParams {
     workspace: Option<PathBuf>,
     fail_on: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct ExtractHardcodedStringsParams {
+    workspace: Option<PathBuf>,
+    paths: Vec<PathBuf>,
+    min_length: Option<usize>,
+    limit: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -244,6 +254,10 @@ impl McpServer {
             "review_i18n_pr" => {
                 let arguments: ReviewI18nPrParams = serde_json::from_value(arguments)?;
                 self.review_i18n_pr(arguments)?
+            }
+            "extract_hardcoded_strings" => {
+                let arguments: ExtractHardcodedStringsParams = serde_json::from_value(arguments)?;
+                self.extract_hardcoded_strings(arguments)?
             }
             name => return Err(anyhow!("Unknown tool: {name}")),
         };
@@ -612,6 +626,54 @@ impl McpServer {
             "summary": report.summary,
             "findings": findings,
             "markdown": markdown
+        }))
+    }
+
+    fn extract_hardcoded_strings(&self, params: ExtractHardcodedStringsParams) -> Result<Value> {
+        let workspace = self.resolve_workspace(params.workspace);
+        let min_length = params.min_length.unwrap_or(3);
+        let limit = params.limit.unwrap_or(100);
+        let roots = if params.paths.is_empty() {
+            vec![workspace.clone()]
+        } else {
+            params
+                .paths
+                .into_iter()
+                .map(|path| {
+                    if path.is_absolute() {
+                        path
+                    } else {
+                        workspace.join(path)
+                    }
+                })
+                .collect()
+        };
+
+        let mut candidates = Vec::new();
+        for root in roots {
+            for file in source_files(&root) {
+                let content = std::fs::read_to_string(&file)
+                    .with_context(|| format!("Failed to read source file {}", file.display()))?;
+                candidates.extend(find_hardcoded_strings(
+                    &workspace,
+                    &file,
+                    &content,
+                    min_length,
+                    limit.saturating_sub(candidates.len()),
+                ));
+                if candidates.len() >= limit {
+                    break;
+                }
+            }
+            if candidates.len() >= limit {
+                break;
+            }
+        }
+
+        Ok(json!({
+            "workspace": workspace,
+            "count": candidates.len(),
+            "candidates": candidates
         }))
     }
 
@@ -1021,6 +1083,131 @@ fn review_markdown(report: &AuditReport, blocking: bool, findings: &[Value]) -> 
     markdown
 }
 
+fn source_files(root: &Path) -> Vec<PathBuf> {
+    let walker = if root.is_file() {
+        return vec![root.to_path_buf()];
+    } else {
+        WalkDir::new(root)
+    };
+
+    walker
+        .into_iter()
+        .filter_entry(|entry| !is_ignored_dir(entry.path()))
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().is_file() && is_supported_source_file(entry.path()))
+        .map(|entry| entry.path().to_path_buf())
+        .collect()
+}
+
+fn is_ignored_dir(path: &Path) -> bool {
+    if !path.is_dir() {
+        return false;
+    }
+
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            matches!(
+                name,
+                "node_modules" | ".git" | "target" | "dist" | "build" | ".nuxt" | ".output"
+            )
+        })
+}
+
+fn is_supported_source_file(path: &Path) -> bool {
+    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+
+    file_name.ends_with(".ts")
+        || file_name.ends_with(".tsx")
+        || file_name.ends_with(".js")
+        || file_name.ends_with(".jsx")
+        || file_name.ends_with(".vue")
+        || file_name.ends_with(".svelte")
+        || file_name.ends_with(".php")
+        || file_name.ends_with(".blade.php")
+        || file_name.ends_with(".dart")
+}
+
+fn find_hardcoded_strings(
+    workspace: &Path,
+    file: &Path,
+    content: &str,
+    min_length: usize,
+    remaining: usize,
+) -> Vec<Value> {
+    if remaining == 0 {
+        return Vec::new();
+    }
+
+    let jsx_text = Regex::new(r">([^<>{}\n][^<>{}\n]*[A-Za-z][^<>{}\n]*)<").expect("jsx regex");
+    let quoted =
+        Regex::new(r#"[\"']([A-Za-z][^\"'\n{}]*\s+[^\"'\n{}]*)[\"']"#).expect("quoted regex");
+    let mut candidates = Vec::new();
+
+    for (line_index, line) in content.lines().enumerate() {
+        for capture in jsx_text.captures_iter(line) {
+            if let Some(value) = normalize_candidate(capture.get(1).map(|m| m.as_str()), min_length)
+            {
+                candidates.push(candidate_json(
+                    workspace, file, line_index, &value, "jsx_text",
+                ));
+            }
+            if candidates.len() >= remaining {
+                return candidates;
+            }
+        }
+
+        for capture in quoted.captures_iter(line) {
+            if line.contains("t(") || line.contains("i18n.t(") {
+                continue;
+            }
+            if let Some(value) = normalize_candidate(capture.get(1).map(|m| m.as_str()), min_length)
+            {
+                candidates.push(candidate_json(
+                    workspace,
+                    file,
+                    line_index,
+                    &value,
+                    "string_literal",
+                ));
+            }
+            if candidates.len() >= remaining {
+                return candidates;
+            }
+        }
+    }
+
+    candidates
+}
+
+fn normalize_candidate(value: Option<&str>, min_length: usize) -> Option<String> {
+    let value = value?.trim();
+    if value.len() < min_length {
+        return None;
+    }
+    if value.starts_with('.') || value.contains("://") || value.contains('/') {
+        return None;
+    }
+    Some(value.to_string())
+}
+
+fn candidate_json(
+    workspace: &Path,
+    file: &Path,
+    line_index: usize,
+    value: &str,
+    kind: &str,
+) -> Value {
+    json!({
+        "file": file.strip_prefix(workspace).unwrap_or(file),
+        "line": line_index + 1,
+        "kind": kind,
+        "text": value
+    })
+}
+
 fn tool_definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
@@ -1148,6 +1335,19 @@ fn tool_definitions() -> Vec<ToolDefinition> {
                 }
             }),
         },
+        ToolDefinition {
+            name: "extract_hardcoded_strings",
+            description: "Return candidate hardcoded user-facing strings from source files.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workspace": { "type": "string" },
+                    "paths": { "type": "array", "items": { "type": "string" }, "default": [] },
+                    "min_length": { "type": "integer", "default": 3 },
+                    "limit": { "type": "integer", "default": 100 }
+                }
+            }),
+        },
     ]
 }
 
@@ -1234,7 +1434,7 @@ mod tests {
     #[test]
     fn serializes_tool_definitions() {
         let tools = tool_definitions();
-        assert_eq!(tools.len(), 8);
+        assert_eq!(tools.len(), 9);
         assert_eq!(tools[0].name, "audit_i18n");
     }
 

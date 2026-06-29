@@ -107,7 +107,8 @@ fn lists_all_mcp_tools_and_resources() {
             "apply_translation_patch",
             "validate_placeholders",
             "get_translation_context",
-            "review_i18n_pr"
+            "review_i18n_pr",
+            "extract_hardcoded_strings"
         ]
     );
 
@@ -358,6 +359,41 @@ fn mcp_apply_translation_patch_can_write_missing_translation() {
         audit["result"]["structuredContent"]["summary"]["missing_translations"],
         1
     );
+}
+
+#[test]
+fn mcp_extract_hardcoded_strings_returns_candidates() {
+    let workspace = write_workspace();
+    fs::write(
+        workspace.path().join("src/Hardcoded.tsx"),
+        r#"export const Hardcoded = () => <button>Submit order</button>;
+export const label = "Checkout title";
+export const translated = t("checkout.submit");
+"#,
+    )
+    .expect("hardcoded source");
+
+    let extraction = call_mcp(
+        workspace.path(),
+        tool_call(
+            "extract_hardcoded_strings",
+            json!({"paths":["src/Hardcoded.tsx"]}),
+        ),
+    );
+
+    let content = &extraction["result"]["structuredContent"];
+    assert_eq!(content["count"], 2);
+    assert!(content["candidates"]
+        .as_array()
+        .expect("candidates")
+        .iter()
+        .any(|candidate| candidate["text"] == "Submit order" && candidate["kind"] == "jsx_text"));
+    assert!(content["candidates"]
+        .as_array()
+        .expect("candidates")
+        .iter()
+        .any(|candidate| candidate["text"] == "Checkout title"
+            && candidate["kind"] == "string_literal"));
 }
 
 #[test]

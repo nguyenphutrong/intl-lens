@@ -124,9 +124,6 @@ Current tools:
 - `validate_placeholders`
 - `get_translation_context`
 - `review_i18n_pr`
-
-Planned tools:
-
 - `extract_hardcoded_strings`
 
 Safety rules:
