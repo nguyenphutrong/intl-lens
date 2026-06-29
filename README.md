@@ -54,9 +54,10 @@ Put the binaries on your `PATH` if you want to run them from other projects.
 
 ```bash
 ln -sf "$(pwd)/target/release/intl-lens" ~/.local/bin/intl-lens
-ln -sf "$(pwd)/target/release/intl-lens-cli" ~/.local/bin/intl-lens-cli
 ln -sf "$(pwd)/target/release/intl-lens-mcp" ~/.local/bin/intl-lens-mcp
 ```
+
+`intl-lens-cli` is still built as a compatibility alias, but the public CLI command is `intl-lens`.
 
 ## Editor Usage
 
@@ -93,34 +94,50 @@ Manual Zed configuration example:
 Run a full audit:
 
 ```bash
-intl-lens-cli audit
+intl-lens audit
 ```
 
 Write machine-readable output for CI or another tool:
 
 ```bash
-intl-lens-cli audit --format json --output i18n-report.json
+intl-lens audit --format json --output i18n-report.json
 ```
 
 Write a Markdown report:
 
 ```bash
-intl-lens-cli audit --format markdown --output i18n-report.md
+intl-lens audit --format markdown --output i18n-report.md
 ```
 
 Check specific files:
 
 ```bash
-intl-lens-cli check src/components/Checkout.tsx src/pages/Home.tsx
+intl-lens check src/components/Checkout.tsx src/pages/Home.tsx
 ```
 
 Include AI-ready fix suggestions:
 
 ```bash
-intl-lens-cli audit --suggest-fixes --format json
+intl-lens audit --suggest-fixes --format json
 ```
 
-`audit` and `check` return a non-zero exit code when Intl Lens finds missing or unused keys. That makes the CLI suitable for CI gates.
+`audit` and `check` return a non-zero exit code when Intl Lens finds missing or unused keys. `ci` uses stricter CI defaults: it fails on missing translations and placeholder mismatches, and it auto-loads `.intl-lens-baseline.json` when that file exists.
+
+CI policy examples:
+
+```bash
+intl-lens ci --fail-on missing,placeholder --max-unused 20
+intl-lens audit --fail-on missing,unused,placeholder
+intl-lens audit --ignore-key-pattern '^legacy\.'
+intl-lens ci --ignore-file 'src/generated/**'
+```
+
+Baseline flow for projects with existing i18n debt:
+
+```bash
+intl-lens audit --write-baseline .intl-lens-baseline.json
+intl-lens ci
+```
 
 ### GitHub Actions Example
 
@@ -137,10 +154,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release -p intl-lens
-      - run: ./target/release/intl-lens-cli audit --format markdown --output i18n-report.md
+      - run: ./target/release/intl-lens ci --format markdown --output i18n-report.md
 ```
 
-More CI controls such as `--fail-on`, baselines, ignore patterns, and a packaged GitHub Action are planned. See [ROADMAP.md](ROADMAP.md).
+A packaged GitHub Action is planned. See [ROADMAP.md](ROADMAP.md).
 
 ## MCP
 

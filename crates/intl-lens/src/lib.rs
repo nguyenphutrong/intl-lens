@@ -1,5 +1,6 @@
 pub mod audit;
 pub mod backend;
+pub mod cli_app;
 pub mod config;
 pub mod document;
 pub mod i18n;

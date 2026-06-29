@@ -45,22 +45,27 @@ Workspace version: `0.1.6`
 
 Goal: teams can add Intl Lens to a pull request workflow without custom glue code.
 
-Planned work:
+Implemented in the CLI:
 
-- Add `--fail-on missing,unused,placeholder`.
-- Add `--ignore-key-pattern`.
-- Add `--ignore-file`.
-- Add `--baseline .intl-lens-baseline.json` for existing projects with known debt.
-- Add `ci` command as a CI-oriented alias with stricter defaults.
-- Document GitHub Actions and GitLab CI examples.
-- Add integration tests for exit codes and report formats.
+- `intl-lens audit` and `intl-lens ci`.
+- `--fail-on missing,unused,placeholder`.
+- `--ignore-key-pattern`.
+- `--ignore-file`.
+- `--baseline` and `--write-baseline`.
+- `--max-unused`.
+- Integration tests for exit codes, filters, baseline behavior, and the compatibility `intl-lens-cli` alias.
+
+Remaining work:
+
+- Package a GitHub Action.
+- Add a GitLab CI example.
 
 Target examples:
 
 ```bash
-intl-lens-cli audit --format json
-intl-lens-cli audit --format markdown --output i18n-report.md
-intl-lens-cli ci --fail-on missing,placeholder --max-unused 20
+intl-lens audit --format json
+intl-lens audit --format markdown --output i18n-report.md
+intl-lens ci --fail-on missing,placeholder --max-unused 20
 ```
 
 Success criteria:
@@ -86,10 +91,10 @@ Planned work:
 Target examples:
 
 ```bash
-intl-lens-cli fix --dry-run
-intl-lens-cli fix --add-missing --placeholder "_TODO_"
-intl-lens-cli fix --remove-unused --interactive
-intl-lens-cli fix --sort-keys
+intl-lens fix --dry-run
+intl-lens fix --add-missing --placeholder "_TODO_"
+intl-lens fix --remove-unused --interactive
+intl-lens fix --sort-keys
 ```
 
 Fix behavior:
@@ -149,7 +154,7 @@ Goal: move untranslated user-facing strings into translation files.
 Initial command:
 
 ```bash
-intl-lens-cli extract src/components/Checkout.tsx --locale en --namespace checkout
+intl-lens extract src/components/Checkout.tsx --locale en --namespace checkout
 ```
 
 Example transformation:
@@ -215,8 +220,8 @@ Planned config shape:
 Planned commands:
 
 ```bash
-intl-lens-cli audit --project admin
-intl-lens-cli audit --all-projects
+intl-lens audit --project admin
+intl-lens audit --all-projects
 ```
 
 Success criteria:
@@ -304,8 +309,8 @@ Goal: fill missing translations with reviewable provider output.
 Planned command shape:
 
 ```bash
-intl-lens-cli translate --provider openai --from en --to vi,ja
-intl-lens-cli translate --provider deepl --missing-only
+intl-lens translate --provider openai --from en --to vi,ja
+intl-lens translate --provider deepl --missing-only
 ```
 
 Candidate providers:
@@ -402,11 +407,11 @@ These checks should be configurable so teams can adopt them gradually.
 
 ## Near-Term Checklist
 
-- [ ] Add CLI tests for `audit`, `check`, output formats, and exit codes.
+- [x] Add CLI tests for CI audit policy, output formats, filters, and exit codes.
 - [ ] Add MCP integration tests for all tools and resources.
-- [ ] Implement `--fail-on`.
-- [ ] Implement baseline file support.
+- [x] Implement `--fail-on`.
+- [x] Implement baseline file support.
 - [ ] Replace `fix` stub with dry-run output.
-- [ ] Add README examples that are tested in CI.
+- [x] Add README examples for CI audit usage.
 
 Last updated: 2026-06-29
