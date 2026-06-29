@@ -128,7 +128,7 @@ intl-lens fix --dry-run
 intl-lens fix --add-missing --placeholder "_TODO_"
 ```
 
-`fix --add-missing` currently writes JSON, YAML, and ARB locale files. Other write paths are tracked in [ROADMAP.md](ROADMAP.md).
+`fix --add-missing` currently writes JSON, YAML, PHP, and ARB locale files. Other write paths are tracked in [ROADMAP.md](ROADMAP.md).
 
 `audit` and `check` return a non-zero exit code when Intl Lens finds missing or unused keys. `ci` uses stricter CI defaults: it fails on missing translations and placeholder mismatches, and it auto-loads `.intl-lens-baseline.json` when that file exists.
 

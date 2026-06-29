@@ -378,3 +378,50 @@ fn fix_add_missing_writes_arb_locale_files() {
     let json: Value = serde_json::from_str(&content).expect("updated arb");
     assert_eq!(json["checkoutSubmit"], "_TODO_");
 }
+
+#[test]
+fn fix_add_missing_writes_php_locale_files() {
+    let workspace = write_workspace(&[
+        (
+            "locales/en.php",
+            r#"<?php
+
+return [
+    'checkout.submit' => 'Submit',
+];
+"#,
+        ),
+        (
+            "locales/vi.php",
+            r#"<?php
+
+return [
+];
+"#,
+        ),
+        (
+            "src/App.tsx",
+            r#"export const App = () => t("checkout.submit");"#,
+        ),
+    ]);
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--add-missing")
+        .arg("--placeholder")
+        .arg("_TODO_");
+    command
+        .assert()
+        .success()
+        .stdout(contains("Added 1 missing translations."));
+
+    let content = fs::read_to_string(workspace.path().join("locales/vi.php")).expect("vi php");
+    assert!(content.contains("'checkout.submit' => '_TODO_',"));
+
+    run_json(workspace.path(), &["ci"])
+        .success()
+        .stdout(contains("\"missing_translations\": 0"));
+}

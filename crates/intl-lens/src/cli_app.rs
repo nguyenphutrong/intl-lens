@@ -756,6 +756,7 @@ fn add_translation_to_file(path: &Path, key: &str, value: &str) -> anyhow::Resul
         Some("json") => add_json_translation(path, key, value).map(|_| true),
         Some("yaml") | Some("yml") => add_yaml_translation(path, key, value).map(|_| true),
         Some("arb") => add_arb_translation(path, key, value).map(|_| true),
+        Some("php") => add_php_translation(path, key, value).map(|_| true),
         _ => Ok(false),
     }
 }
@@ -802,6 +803,32 @@ fn add_arb_translation(path: &Path, key: &str, value: &str) -> anyhow::Result<()
 
     let mut output = serde_json::to_string_pretty(&json)?;
     output.push('\n');
+    std::fs::write(path, output)
+        .with_context(|| format!("Failed to write locale file {}", path.display()))?;
+    Ok(())
+}
+
+fn add_php_translation(path: &Path, key: &str, value: &str) -> anyhow::Result<()> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read locale file {}", path.display()))?;
+    let insert_at = content.rfind("];").ok_or_else(|| {
+        anyhow!(
+            "Failed to find closing PHP short array in locale file {}",
+            path.display()
+        )
+    })?;
+
+    let escaped_key = escape_php_single_quoted(key);
+    let escaped_value = escape_php_single_quoted(value);
+    let indent = detect_php_root_indent(&content);
+    let mut output = String::new();
+    output.push_str(&content[..insert_at]);
+    if !output.ends_with('\n') {
+        output.push('\n');
+    }
+    output.push_str(&format!("{indent}'{escaped_key}' => '{escaped_value}',\n"));
+    output.push_str(&content[insert_at..]);
+
     std::fs::write(path, output)
         .with_context(|| format!("Failed to write locale file {}", path.display()))?;
     Ok(())
@@ -946,6 +973,24 @@ fn fix_files(suggestion: Option<&crate::audit::FixSuggestion>) -> Vec<PathBuf> {
     suggestion
         .map(|suggestion| suggestion.files_to_edit.clone())
         .unwrap_or_default()
+}
+
+fn escape_php_single_quoted(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
+fn detect_php_root_indent(content: &str) -> String {
+    content
+        .lines()
+        .find_map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('\'') || trimmed.starts_with('"') {
+                Some(line[..line.len() - trimmed.len()].to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "    ".to_string())
 }
 
 fn find_locale_file(workspace: &Path, config: &I18nConfig, locale: &str) -> Option<PathBuf> {
