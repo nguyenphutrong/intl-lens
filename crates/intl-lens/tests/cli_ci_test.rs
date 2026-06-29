@@ -564,3 +564,146 @@ fn fix_sort_keys_is_idempotent() {
 
     assert_eq!(twice, once);
 }
+
+#[test]
+fn fix_to_nested_converts_flat_json_keys() {
+    let workspace = write_workspace(&[
+        (
+            "locales/en.json",
+            r#"{"checkout.submit":"Submit","checkout.cancel":"Cancel","app":"App"}"#,
+        ),
+        ("src/App.tsx", "export const App = () => null;"),
+    ]);
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--to-nested");
+    command
+        .assert()
+        .success()
+        .stdout(contains("Converted 1 translation files."));
+
+    let content = fs::read_to_string(workspace.path().join("locales/en.json")).expect("en json");
+    let json: Value = serde_json::from_str(&content).expect("converted json");
+    assert_eq!(json["checkout"]["submit"], "Submit");
+    assert_eq!(json["checkout"]["cancel"], "Cancel");
+    assert_eq!(json["app"], "App");
+}
+
+#[test]
+fn fix_to_flat_converts_nested_yaml_keys() {
+    let workspace = write_workspace(&[
+        (
+            "locales/en.yaml",
+            "checkout:\n  submit: Submit\n  cancel: Cancel\napp: App\n",
+        ),
+        ("src/App.tsx", "export const App = () => null;"),
+    ]);
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--to-flat");
+    command.assert().success();
+
+    let content = fs::read_to_string(workspace.path().join("locales/en.yaml")).expect("en yaml");
+    let yaml: serde_yaml::Value = serde_yaml::from_str(&content).expect("converted yaml");
+    assert_eq!(yaml["checkout.submit"], "Submit");
+    assert_eq!(yaml["checkout.cancel"], "Cancel");
+    assert_eq!(yaml["app"], "App");
+}
+
+#[test]
+fn fix_conversion_runs_with_sort_keys() {
+    let workspace = write_workspace(&[
+        (
+            "locales/en.json",
+            r#"{"z.title":"Z","a.title":"A","m.title":"M"}"#,
+        ),
+        ("src/App.tsx", "export const App = () => null;"),
+    ]);
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--to-nested")
+        .arg("--sort-keys");
+    command
+        .assert()
+        .success()
+        .stdout(contains("Converted 1 translation files."))
+        .stdout(contains("Sorted 0 translation files."));
+
+    let content = fs::read_to_string(workspace.path().join("locales/en.json")).expect("en json");
+    assert!(content.find("\n  \"a\"").unwrap() < content.find("\n  \"m\"").unwrap());
+    assert!(content.find("\n  \"m\"").unwrap() < content.find("\n  \"z\"").unwrap());
+}
+
+#[test]
+fn fix_conversion_skips_arb_and_php_files() {
+    let workspace = write_workspace(&[
+        ("locales/app_en.arb", r#"{"checkout.submit":"Submit"}"#),
+        (
+            "locales/en.php",
+            r#"<?php
+
+return [
+    'checkout.submit' => 'Submit',
+];
+"#,
+        ),
+        ("src/App.tsx", "export const App = () => null;"),
+    ]);
+    let arb_before = fs::read_to_string(workspace.path().join("locales/app_en.arb")).expect("arb");
+    let php_before = fs::read_to_string(workspace.path().join("locales/en.php")).expect("php");
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--to-nested");
+    command
+        .assert()
+        .success()
+        .stdout(contains("Converted 0 translation files."))
+        .stdout(contains("Skipped 2 unsupported or unchanged files."));
+
+    let arb_after = fs::read_to_string(workspace.path().join("locales/app_en.arb")).expect("arb");
+    let php_after = fs::read_to_string(workspace.path().join("locales/en.php")).expect("php");
+    assert_eq!(arb_after, arb_before);
+    assert_eq!(php_after, php_before);
+}
+
+#[test]
+fn fix_to_nested_rejects_conflicting_json_keys() {
+    let workspace = write_workspace(&[
+        (
+            "locales/en.json",
+            r#"{"checkout":"Checkout","checkout.submit":"Submit"}"#,
+        ),
+        ("src/App.tsx", "export const App = () => null;"),
+    ]);
+    let before = fs::read_to_string(workspace.path().join("locales/en.json")).expect("en json");
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--to-nested");
+    command
+        .assert()
+        .failure()
+        .stderr(contains("conflicting key"));
+
+    let after = fs::read_to_string(workspace.path().join("locales/en.json")).expect("en json");
+    assert_eq!(after, before);
+}

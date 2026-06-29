@@ -85,6 +85,7 @@ Planned work:
 - Add `--placeholder "_TODO_"`. Done for JSON, YAML, PHP, and ARB missing-key writes.
 - Add `--remove-unused --interactive`.
 - Add `--sort-keys`. Done for JSON, YAML, and ARB locale files.
+- Add flat to nested and nested to flat conversion. Done for JSON and YAML locale files.
 - Preserve file format and minimize diff noise.
 - Add tests for JSON, YAML, PHP, and ARB write paths before broad rollout. Done for `--add-missing`.
 

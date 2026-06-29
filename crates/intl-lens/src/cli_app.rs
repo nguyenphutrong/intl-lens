@@ -59,6 +59,12 @@ enum Commands {
         /// Sort translation keys in supported locale files
         #[arg(long)]
         sort_keys: bool,
+        /// Convert flat dotted keys to nested key structure
+        #[arg(long, conflicts_with = "to_flat")]
+        to_nested: bool,
+        /// Convert nested key structure to flat dotted keys
+        #[arg(long, conflicts_with = "to_nested")]
+        to_flat: bool,
         /// Value to use when adding missing translations. Defaults to source text.
         #[arg(long)]
         placeholder: Option<String>,
@@ -222,8 +228,21 @@ where
             dry_run,
             add_missing,
             sort_keys,
+            to_nested,
+            to_flat,
             placeholder,
-        } => run_fix(&cli.workspace, dry_run, add_missing, sort_keys, placeholder).await,
+        } => {
+            run_fix(
+                &cli.workspace,
+                dry_run,
+                add_missing,
+                sort_keys,
+                to_nested,
+                to_flat,
+                placeholder,
+            )
+            .await
+        }
     }
 }
 
@@ -691,6 +710,8 @@ async fn run_fix(
     dry_run: bool,
     add_missing: bool,
     sort_keys: bool,
+    to_nested: bool,
+    to_flat: bool,
     placeholder: Option<String>,
 ) -> anyhow::Result<i32> {
     let config = I18nConfig::load_from_workspace(workspace);
@@ -719,6 +740,29 @@ async fn run_fix(
         return Ok(0);
     }
 
+    if to_nested || to_flat {
+        let target_style = if to_nested {
+            KeyConversionTarget::Nested
+        } else {
+            KeyConversionTarget::Flat
+        };
+        let summary = convert_translation_files(workspace, &config, target_style)?;
+        println!("Converted {} translation files.", summary.converted);
+        println!(
+            "Skipped {} unsupported or unchanged files.",
+            summary.skipped
+        );
+        if sort_keys {
+            let sort_summary = sort_translation_files(workspace, &config)?;
+            println!("Sorted {} translation files.", sort_summary.sorted);
+            println!(
+                "Skipped {} unsupported or unchanged files.",
+                sort_summary.skipped
+            );
+        }
+        return Ok(0);
+    }
+
     if sort_keys {
         let summary = sort_translation_files(workspace, &config)?;
         println!("Sorted {} translation files.", summary.sorted);
@@ -731,7 +775,7 @@ async fn run_fix(
 
     println!("Write mode requires an explicit fix option. Run `intl-lens fix --dry-run` to preview fixes.");
     println!(
-        "Supported write options: `intl-lens fix --add-missing --placeholder _TODO_`, `intl-lens fix --sort-keys`."
+        "Supported write options: `intl-lens fix --add-missing --placeholder _TODO_`, `intl-lens fix --sort-keys`, `intl-lens fix --to-nested`, `intl-lens fix --to-flat`."
     );
     Ok(1)
 }
@@ -746,9 +790,111 @@ struct SortSummary {
     skipped: usize,
 }
 
+struct ConvertSummary {
+    converted: usize,
+    skipped: usize,
+}
+
 enum SortOutcome {
     Sorted,
     Skipped,
+}
+
+enum ConvertOutcome {
+    Converted,
+    Skipped,
+}
+
+#[derive(Clone, Copy)]
+enum KeyConversionTarget {
+    Nested,
+    Flat,
+}
+
+fn convert_translation_files(
+    workspace: &Path,
+    config: &I18nConfig,
+    target: KeyConversionTarget,
+) -> anyhow::Result<ConvertSummary> {
+    let mut converted = 0;
+    let mut skipped = 0;
+
+    for file in collect_translation_files(workspace, &config.locale_paths) {
+        match convert_translation_file(&file, target)? {
+            ConvertOutcome::Converted => converted += 1,
+            ConvertOutcome::Skipped => skipped += 1,
+        }
+    }
+
+    Ok(ConvertSummary { converted, skipped })
+}
+
+fn convert_translation_file(
+    path: &Path,
+    target: KeyConversionTarget,
+) -> anyhow::Result<ConvertOutcome> {
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some("json") => convert_json_translation_file(path, target),
+        Some("yaml") | Some("yml") => convert_yaml_translation_file(path, target),
+        _ => Ok(ConvertOutcome::Skipped),
+    }
+}
+
+fn convert_json_translation_file(
+    path: &Path,
+    target: KeyConversionTarget,
+) -> anyhow::Result<ConvertOutcome> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read locale file {}", path.display()))?;
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse JSON locale file {}", path.display()))?;
+    let converted = match target {
+        KeyConversionTarget::Nested => json_to_nested(json),
+        KeyConversionTarget::Flat => json_to_flat(json),
+    };
+    let converted = converted.with_context(|| {
+        format!(
+            "Failed to convert JSON locale file {} without key conflicts",
+            path.display()
+        )
+    })?;
+
+    let mut output = serde_json::to_string_pretty(&converted)?;
+    output.push('\n');
+    if content == output {
+        return Ok(ConvertOutcome::Skipped);
+    }
+    std::fs::write(path, output)
+        .with_context(|| format!("Failed to write locale file {}", path.display()))?;
+    Ok(ConvertOutcome::Converted)
+}
+
+fn convert_yaml_translation_file(
+    path: &Path,
+    target: KeyConversionTarget,
+) -> anyhow::Result<ConvertOutcome> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read locale file {}", path.display()))?;
+    let yaml: serde_yaml::Value = serde_yaml::from_str(&content)
+        .with_context(|| format!("Failed to parse YAML locale file {}", path.display()))?;
+    let converted = match target {
+        KeyConversionTarget::Nested => yaml_to_nested(yaml),
+        KeyConversionTarget::Flat => yaml_to_flat(yaml),
+    };
+    let converted = converted.with_context(|| {
+        format!(
+            "Failed to convert YAML locale file {} without key conflicts",
+            path.display()
+        )
+    })?;
+
+    let output = serde_yaml::to_string(&converted)?;
+    if content == output {
+        return Ok(ConvertOutcome::Skipped);
+    }
+    std::fs::write(path, output)
+        .with_context(|| format!("Failed to write locale file {}", path.display()))?;
+    Ok(ConvertOutcome::Converted)
 }
 
 fn sort_translation_files(workspace: &Path, config: &I18nConfig) -> anyhow::Result<SortSummary> {
@@ -955,6 +1101,172 @@ fn yaml_sort_key(value: &serde_yaml::Value) -> String {
     match value {
         serde_yaml::Value::String(value) => value.clone(),
         other => serde_yaml::to_string(other).unwrap_or_default(),
+    }
+}
+
+fn json_to_nested(value: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    let mut nested = serde_json::json!({});
+    for (key, value) in flatten_json_entries("", value) {
+        insert_json_value(&mut nested, &key, value)?;
+    }
+    Ok(nested)
+}
+
+fn json_to_flat(value: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    let entries = flatten_json_entries("", value);
+    let mut flat = serde_json::Map::new();
+    for (key, value) in entries {
+        if flat.contains_key(&key) {
+            return Err(anyhow!("conflicting key `{key}`"));
+        }
+        flat.insert(key, value);
+    }
+    Ok(serde_json::Value::Object(flat))
+}
+
+fn flatten_json_entries(
+    prefix: &str,
+    value: serde_json::Value,
+) -> Vec<(String, serde_json::Value)> {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut entries = Vec::new();
+            for (key, child) in map {
+                let next_key = join_key(prefix, &key);
+                if child.is_object() {
+                    entries.extend(flatten_json_entries(&next_key, child));
+                } else {
+                    entries.push((next_key, child));
+                }
+            }
+            entries
+        }
+        other if !prefix.is_empty() => vec![(prefix.to_string(), other)],
+        other => vec![(String::new(), other)],
+    }
+}
+
+fn insert_json_value(
+    json: &mut serde_json::Value,
+    key: &str,
+    value: serde_json::Value,
+) -> anyhow::Result<()> {
+    if !json.is_object() {
+        *json = serde_json::json!({});
+    }
+
+    let parts: Vec<&str> = key.split('.').filter(|part| !part.is_empty()).collect();
+    if parts.is_empty() {
+        *json = value;
+        return Ok(());
+    }
+
+    let mut current = json;
+    for part in &parts[..parts.len().saturating_sub(1)] {
+        if current.get(*part).is_some_and(|child| !child.is_object()) {
+            return Err(anyhow!("conflicting key `{key}`"));
+        }
+        if !current.get(*part).is_some_and(serde_json::Value::is_object) {
+            current[*part] = serde_json::json!({});
+        }
+        current = &mut current[*part];
+    }
+
+    if let Some(last) = parts.last() {
+        if current.get(*last).is_some_and(serde_json::Value::is_object) && !value.is_object() {
+            return Err(anyhow!("conflicting key `{key}`"));
+        }
+        current[*last] = value;
+    }
+    Ok(())
+}
+
+fn yaml_to_nested(value: serde_yaml::Value) -> anyhow::Result<serde_yaml::Value> {
+    let mut nested = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
+    for (key, value) in flatten_yaml_entries("", value) {
+        insert_yaml_value(&mut nested, &key, value)?;
+    }
+    Ok(nested)
+}
+
+fn yaml_to_flat(value: serde_yaml::Value) -> anyhow::Result<serde_yaml::Value> {
+    let entries = flatten_yaml_entries("", value);
+    let mut flat = serde_yaml::Mapping::new();
+    for (key, value) in entries {
+        let key = serde_yaml::Value::String(key);
+        if flat.contains_key(&key) {
+            return Err(anyhow!("conflicting key `{}`", yaml_sort_key(&key)));
+        }
+        flat.insert(key, value);
+    }
+    Ok(serde_yaml::Value::Mapping(flat))
+}
+
+fn flatten_yaml_entries(
+    prefix: &str,
+    value: serde_yaml::Value,
+) -> Vec<(String, serde_yaml::Value)> {
+    match value {
+        serde_yaml::Value::Mapping(map) => {
+            let mut entries = Vec::new();
+            for (key, child) in map {
+                let key = yaml_sort_key(&key);
+                let next_key = join_key(prefix, &key);
+                if child.is_mapping() {
+                    entries.extend(flatten_yaml_entries(&next_key, child));
+                } else {
+                    entries.push((next_key, child));
+                }
+            }
+            entries
+        }
+        other if !prefix.is_empty() => vec![(prefix.to_string(), other)],
+        other => vec![(String::new(), other)],
+    }
+}
+
+fn insert_yaml_value(
+    yaml: &mut serde_yaml::Value,
+    key: &str,
+    value: serde_yaml::Value,
+) -> anyhow::Result<()> {
+    if !yaml.is_mapping() {
+        *yaml = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
+    }
+
+    let parts: Vec<&str> = key.split('.').filter(|part| !part.is_empty()).collect();
+    if parts.is_empty() {
+        *yaml = value;
+        return Ok(());
+    }
+
+    let mut current = yaml;
+    for part in &parts[..parts.len().saturating_sub(1)] {
+        let key = serde_yaml::Value::String((*part).to_string());
+        if current.get(&key).is_some_and(|child| !child.is_mapping()) {
+            return Err(anyhow!("conflicting key `{}`", parts.join(".")));
+        }
+        if !current.get(&key).is_some_and(serde_yaml::Value::is_mapping) {
+            current[key.clone()] = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
+        }
+        current = &mut current[key];
+    }
+
+    if let Some(last) = parts.last() {
+        let key = serde_yaml::Value::String((*last).to_string());
+        if current.get(&key).is_some_and(serde_yaml::Value::is_mapping) && !value.is_mapping() {
+            return Err(anyhow!("conflicting key `{}`", parts.join(".")));
+        }
+        current[key] = value;
+    }
+    Ok(())
+}
+
+fn join_key(prefix: &str, key: &str) -> String {
+    if prefix.is_empty() {
+        key.to_string()
+    } else {
+        format!("{prefix}.{key}")
     }
 }
 
