@@ -237,3 +237,36 @@ fn compatibility_intl_lens_cli_alias_still_runs() {
         .success()
         .stdout(contains("\"missing_translations\": 0"));
 }
+
+#[test]
+fn fix_dry_run_outputs_reviewable_suggestions() {
+    let workspace = write_workspace(&[
+        (
+            "locales/en.json",
+            r#"{"checkout":{"submit":"Submit"},"greeting":"Hello {name}","legacy":"Legacy"}"#,
+        ),
+        ("locales/vi.json", r#"{"greeting":"Xin chao"}"#),
+        (
+            "src/App.tsx",
+            r#"export const App = () => <>{t("checkout.submit")}{t("greeting")}</>;"#,
+        ),
+    ]);
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--dry-run");
+    command
+        .assert()
+        .success()
+        .stdout(contains("i18n Fix Dry Run"))
+        .stdout(contains("checkout.submit"))
+        .stdout(contains("action: add_translation"))
+        .stdout(contains("locales/vi.json"))
+        .stdout(contains("legacy"))
+        .stdout(contains("action: remove_or_review"))
+        .stdout(contains("greeting"))
+        .stdout(contains("action: review_placeholder_mismatch"));
+}

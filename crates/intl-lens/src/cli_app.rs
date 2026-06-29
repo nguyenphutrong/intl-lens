@@ -671,10 +671,137 @@ async fn run_check(
     Ok(if missing.is_empty() { 0 } else { 1 })
 }
 
-async fn run_fix(_workspace: &Path, _dry_run: bool) -> anyhow::Result<i32> {
-    println!("Fix command is coming soon!");
-    println!("This will suggest or automatically apply fixes for missing translations.");
+async fn run_fix(workspace: &Path, dry_run: bool) -> anyhow::Result<i32> {
+    if !dry_run {
+        println!(
+            "Write mode is not implemented yet. Run `intl-lens fix --dry-run` to preview fixes."
+        );
+        return Ok(1);
+    }
+
+    let config = I18nConfig::load_from_workspace(workspace);
+    let store = TranslationStore::new(workspace.to_path_buf());
+    store.scan_and_load(&config.locale_paths);
+
+    let mut result = AuditResult::new(workspace.to_path_buf(), config.clone(), store);
+    result.scan_codebase();
+    let report = result.generate_report();
+
+    println!("{}", format_fix_dry_run(workspace, &config, &report));
     Ok(0)
+}
+
+fn format_fix_dry_run(workspace: &Path, config: &I18nConfig, report: &AuditReport) -> String {
+    let mut output = String::new();
+    output.push_str("i18n Fix Dry Run\n\n");
+    output.push_str(&format!(
+        "Missing translations: {}\n",
+        report.summary.missing_translations
+    ));
+    output.push_str(&format!("Unused keys: {}\n", report.summary.unused_keys));
+    output.push_str(&format!(
+        "Placeholder issues: {}\n\n",
+        report.summary.placeholder_mismatches
+    ));
+
+    if report.missing.is_empty() && report.unused.is_empty() && report.placeholder_issues.is_empty()
+    {
+        output.push_str("No fixes to suggest.\n");
+        return output;
+    }
+
+    if !report.missing.is_empty() {
+        output.push_str("Missing translations\n");
+        for item in &report.missing {
+            output.push_str(&format!("- {}\n", item.key));
+            output.push_str(&format!(
+                "  action: {}\n",
+                fix_action(item.suggestion.as_ref())
+            ));
+            output.push_str(&format!(
+                "  source: {} = {}\n",
+                item.source_locale, item.source_value
+            ));
+            output.push_str(&format!("  missing in: {}\n", item.missing_in.join(", ")));
+            output.push_str("  files:\n");
+            for file in fix_files(item.suggestion.as_ref()) {
+                output.push_str(&format!("    - {}\n", relative_path(workspace, &file)));
+            }
+        }
+        output.push('\n');
+    }
+
+    if !report.unused.is_empty() {
+        output.push_str("Unused keys\n");
+        for item in &report.unused {
+            output.push_str(&format!("- {}\n", item.key));
+            output.push_str(&format!(
+                "  action: {}\n",
+                fix_action(item.suggestion.as_ref())
+            ));
+            output.push_str(&format!(
+                "  defined in: {}\n",
+                relative_path(workspace, &item.defined_in.file_path)
+            ));
+        }
+        output.push('\n');
+    }
+
+    if !report.placeholder_issues.is_empty() {
+        output.push_str("Placeholder issues\n");
+        for item in &report.placeholder_issues {
+            let mut locales: Vec<&String> = item.locale_values.keys().collect();
+            locales.sort();
+            output.push_str(&format!("- {}\n", item.key));
+            output.push_str("  action: review_placeholder_mismatch\n");
+            output.push_str(&format!(
+                "  expected placeholders: {}\n",
+                item.expected_placeholders.join(", ")
+            ));
+            output.push_str(&format!(
+                "  mismatched locales: {}\n",
+                locales
+                    .iter()
+                    .map(|locale| locale.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            output.push_str("  files:\n");
+            for locale in locales {
+                if let Some(file) = find_locale_file(workspace, config, locale) {
+                    output.push_str(&format!("    - {}\n", relative_path(workspace, &file)));
+                }
+            }
+        }
+    }
+
+    output
+}
+
+fn fix_action(suggestion: Option<&crate::audit::FixSuggestion>) -> &str {
+    suggestion
+        .map(|suggestion| suggestion.action.as_str())
+        .unwrap_or("review")
+}
+
+fn fix_files(suggestion: Option<&crate::audit::FixSuggestion>) -> Vec<PathBuf> {
+    suggestion
+        .map(|suggestion| suggestion.files_to_edit.clone())
+        .unwrap_or_default()
+}
+
+fn find_locale_file(workspace: &Path, config: &I18nConfig, locale: &str) -> Option<PathBuf> {
+    for locale_path in &config.locale_paths {
+        let base = workspace.join(locale_path);
+        for extension in ["json", "yaml", "yml", "arb", "php"] {
+            let candidate = base.join(format!("{locale}.{extension}"));
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    None
 }
 
 fn format_terminal(report: &AuditReport, suggest_fixes: bool) -> String {

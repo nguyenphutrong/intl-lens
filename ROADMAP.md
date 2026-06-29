@@ -411,7 +411,7 @@ These checks should be configurable so teams can adopt them gradually.
 - [x] Add MCP integration tests for all tools and resources.
 - [x] Implement `--fail-on`.
 - [x] Implement baseline file support.
-- [ ] Replace `fix` stub with dry-run output.
+- [x] Replace `fix` stub with dry-run output.
 - [x] Add README examples for CI audit usage.
 
 Last updated: 2026-06-29
