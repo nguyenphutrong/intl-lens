@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "i18n Lens - LSP server, CLI, and MCP server for internationalization"
+description = "i18n intelligence layer with LSP, CLI, and MCP interfaces"
 
 [lib]
 name = "intl_lens"

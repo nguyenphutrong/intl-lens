@@ -1,79 +1,74 @@
-<div align="center">
+# Intl Lens
 
-# 🔍 Intl Lens
+Intl Lens is an i18n intelligence layer for codebases.
 
-**i18n support for Zed Editor - see translations inline.**
+It runs in editors through LSP, in CI through a CLI, and in AI coding workflows through an MCP server. The Zed extension is the first editor integration, not the whole product.
 
-[![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Zed](https://img.shields.io/badge/zed-extension-purple.svg)](https://zed.dev)
+[Features](#features) | [Install](#install) | [CLI](#cli) | [MCP](#mcp) | [Configure](#configuration) | [Roadmap](ROADMAP.md)
 
-Stop guessing what `t("common.buttons.submit")` means.<br/>
-**See translations inline. Catch missing keys instantly. Ship with confidence.**
+## Features
 
-[Features](#-features) · [Install](#-installation) · [Configure](#-configuration) · [Contribute](#-contributing)
+Intl Lens helps you answer the questions that usually require opening translation files by hand:
 
-</div>
+- What does this key mean?
+- Is this key defined?
+- Which locales are missing a value?
+- Which translation keys are no longer used?
+- Do translated placeholders still match the source locale?
 
----
+Current surfaces:
 
-## ✨ Features
+| Surface | What it does |
+|---------|--------------|
+| LSP / Zed | Inline translation hints, hover previews, missing-key diagnostics, autocomplete, go to definition, auto reload |
+| CLI | Project audits, file checks, terminal / JSON / Markdown output, CI-friendly exit codes |
+| MCP | Agent tools for audit data, missing translations, fix suggestions, and placeholder validation |
+| Rust library | Reusable scanner, parser, config, audit, and translation store modules |
 
-| Feature | Description |
-|---------|-------------|
-| 🔍 **Inline Hints** | See translation values right next to your i18n keys |
-| 💬 **Hover Preview** | View all locale translations with quick jump links |
-| ⚠️ **Missing Key Detection** | Get warnings for undefined translation keys |
-| 🌐 **Incomplete Coverage** | Know which locales are missing translations |
-| ⚡ **Autocomplete** | Type `t("` and get instant key suggestions with previews |
-| 🎯 **Go to Definition** | Jump directly to the translation in any locale file |
-| 🔄 **Auto Reload** | Changes to translation files are picked up automatically |
+## Install
 
-## 🎬 Demo
+### Zed Extension
 
-```tsx
-// Before: What does this even mean? 🤔
-<button>{t("common.actions.submit")}</button>
+1. Open Zed.
+2. Go to Extensions with `cmd+shift+x`.
+3. Search for `Intl Lens`.
+4. Install the extension.
 
-// After: Crystal clear! ✨
-<button>{t("common.actions.submit")}</button>  // → Submit
-```
-
-**Hover over any i18n key to see:**
-```
-🌍 common.actions.submit
-
-en: Submit (↗)
-vi: Gửi (↗)
-ja: 送信 (↗)
----
-```
-
-![Hover Preview](screenshots/screenshot-1.png)
-
-![Autocomplete](screenshots/screenshot-2-auto-compelete.png)
-
-## 🚀 Installation
-
-### From Zed Extensions (Recommended)
-
-1. Open Zed
-2. Go to Extensions (`cmd+shift+x`)
-3. Search for "Intl Lens"
-4. Click Install
+The extension launches the `intl-lens` language server.
 
 ### Build from Source
 
 ```bash
 git clone https://github.com/nguyenphutrong/intl-lens.git
 cd intl-lens
-cargo build --release -p intl-lens
-ln -sf $(pwd)/target/release/intl-lens ~/.local/bin/
+cargo build --release
 ```
 
-### Configure Zed (Manual Installation)
+This builds:
 
-Add to `~/.config/zed/settings.json`:
+- `target/release/intl-lens`
+- `target/release/intl-lens-cli`
+- `target/release/intl-lens-mcp`
+
+Put the binaries on your `PATH` if you want to run them from other projects.
+
+```bash
+ln -sf "$(pwd)/target/release/intl-lens" ~/.local/bin/intl-lens
+ln -sf "$(pwd)/target/release/intl-lens-cli" ~/.local/bin/intl-lens-cli
+ln -sf "$(pwd)/target/release/intl-lens-mcp" ~/.local/bin/intl-lens-mcp
+```
+
+## Editor Usage
+
+When you write code like this:
+
+```tsx
+<button>{t("common.actions.submit")}</button>
+```
+
+Intl Lens can show the source translation inline, display all locale values on hover, warn when the key is missing, and jump to the translation definition.
+
+Manual Zed configuration example:
 
 ```jsonc
 {
@@ -93,30 +88,152 @@ Add to `~/.config/zed/settings.json`:
 }
 ```
 
-**Restart Zed. Done. 🎉**
+## CLI
 
-## 🎯 Supported Frameworks
+Run a full audit:
 
-Works out of the box with:
+```bash
+intl-lens-cli audit
+```
+
+Write machine-readable output for CI or another tool:
+
+```bash
+intl-lens-cli audit --format json --output i18n-report.json
+```
+
+Write a Markdown report:
+
+```bash
+intl-lens-cli audit --format markdown --output i18n-report.md
+```
+
+Check specific files:
+
+```bash
+intl-lens-cli check src/components/Checkout.tsx src/pages/Home.tsx
+```
+
+Include AI-ready fix suggestions:
+
+```bash
+intl-lens-cli audit --suggest-fixes --format json
+```
+
+`audit` and `check` return a non-zero exit code when Intl Lens finds missing or unused keys. That makes the CLI suitable for CI gates.
+
+### GitHub Actions Example
+
+```yaml
+name: i18n
+
+on:
+  pull_request:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p intl-lens
+      - run: ./target/release/intl-lens-cli audit --format markdown --output i18n-report.md
+```
+
+More CI controls such as `--fail-on`, baselines, ignore patterns, and a packaged GitHub Action are planned. See [ROADMAP.md](ROADMAP.md).
+
+## MCP
+
+Start the MCP server from the project you want to inspect:
+
+```bash
+intl-lens-mcp
+```
+
+Available tools:
+
+| Tool | Purpose |
+|------|---------|
+| `audit_i18n` | Return missing translations, unused keys, placeholder issues, and summary data |
+| `get_missing_translations` | Filter missing keys by locale and optionally include source usage context |
+| `suggest_translation_fixes` | Return file targets and source text for a missing key |
+| `validate_placeholders` | Check placeholder consistency for one key |
+
+Available resources:
+
+| Resource | Purpose |
+|----------|---------|
+| `intl-lens://config` | Resolved i18n config |
+| `intl-lens://audit/latest` | Fresh audit report |
+| `intl-lens://translations/index` | Loaded locales and key count |
+
+Example agent workflow:
+
+```text
+Run intl-lens audit, list keys missing in Vietnamese, suggest fixes, then validate placeholders.
+```
+
+## Configuration
+
+Intl Lens looks for configuration in this order:
+
+1. `.i18n-ally.json`
+2. `i18n-ally.config.json`
+3. `.zed/i18n.json`
+
+Example:
+
+```json
+{
+  "localePaths": ["src/locales", "public/locales"],
+  "sourceLocale": "en",
+  "keyStyle": "auto",
+  "displayMode": "inlayHints",
+  "namespaceEnabled": false
+}
+```
+
+Options:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `localePaths` | `string[]` | Common locale directories | Translation directories to scan |
+| `sourceLocale` | `string` | `en` | Primary locale used as the source text |
+| `keyStyle` | `nested`, `flat`, `auto` | `auto` | Translation key structure |
+| `displayMode` | `inlayHints`, `codeLens` | `inlayHints` | LSP display mode |
+| `namespaceEnabled` | `boolean` | `false` | Enables namespace-aware behavior |
+| `functionPatterns` | `string[]` | Built-in framework patterns | Custom regex patterns for key detection |
+
+Custom pattern example:
+
+```json
+{
+  "functionPatterns": [
+    "t\\s*\\(\\s*[\"']([^\"']+)[\"']",
+    "translate\\s*\\(\\s*[\"']([^\"']+)[\"']"
+  ]
+}
+```
+
+## Supported Frameworks
 
 | Framework | Patterns |
 |-----------|----------|
-| **react-i18next** | `t("key")` `useTranslation()` `<Trans i18nKey="key">` |
-| **i18next** | `t("key")` `i18n.t("key")` |
-| **vue-i18n** | `$t("key")` `t("key")` |
-| **react-intl** | `formatMessage({ id: "key" })` |
-| **ngx-translate (Angular)** | `translateService.instant("key")` `translateService.get("key")` `| translate` |
-| **Transloco (Angular)** | `translocoService.translate("key")` `selectTranslate("key")` `| transloco` |
-| **Laravel** | `__("key")` `trans("key")` `Lang::get("key")` `@lang("key")` |
-| **Flutter (gen_l10n)** | `AppLocalizations.of(context)!.key` |
-| **easy_localization** | `'key'.tr()` `tr('key')` `context.tr('key')` |
-| **flutter_i18n** | `FlutterI18n.translate(context, 'key')` `I18nText('key')` |
-| **GetX** | `'key'.tr` `'key'.trParams({})` |
-| **svelte-i18n** | `$_("key")` `$t("key")` `$format("key")` |
-| **sveltekit-i18n** | `$t("key")` `t("key")` |
-| **Custom** | Configure your own patterns! |
+| react-i18next | `t("key")`, `useTranslation()`, `<Trans i18nKey="key">` |
+| i18next | `t("key")`, `i18n.t("key")` |
+| vue-i18n | `$t("key")`, `$tc("key")`, `$te("key")` |
+| react-intl | `formatMessage({ id: "key" })` |
+| ngx-translate | `translateService.instant("key")`, `translateService.get("key")`, `| translate` |
+| Transloco | `translocoService.translate("key")`, `selectTranslate("key")`, `| transloco` |
+| Laravel | `__("key")`, `trans("key")`, `Lang::get("key")`, `@lang("key")` |
+| Flutter gen_l10n | `AppLocalizations.of(context)!.key` |
+| easy_localization | `'key'.tr()`, `tr("key")`, `context.tr("key")` |
+| flutter_i18n | `FlutterI18n.translate(context, "key")`, `I18nText("key")` |
+| GetX | `'key'.tr`, `'key'.trParams({})` |
+| svelte-i18n | `$_("key")`, `$t("key")`, `$format("key")` |
+| sveltekit-i18n | `$t("key")`, `t("key")` |
 
-## 🧩 Supported Languages
+## Supported Source Files
 
 - TypeScript / TSX
 - JavaScript / JSX
@@ -124,138 +241,67 @@ Works out of the box with:
 - Angular templates
 - PHP
 - Blade
-- Dart (Flutter)
-- Vue.js
+- Dart / Flutter
+- Vue
 - Svelte
 
-## ⚙️ Configuration
-
-Create `.zed/i18n.json` in your project root:
-
-```json
-{
-  "localePaths": ["src/locales", "public/locales"],
-  "sourceLocale": "en"
-}
-```
-
-<details>
-<summary><strong>📋 All Options</strong></summary>
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `localePaths` | `string[]` | `["locales", "i18n", ...]` | Where to find translation files |
-| `sourceLocale` | `string` | `"en"` | Your primary language |
-| `keyStyle` | `"nested" \| "flat"` | `"auto"` | JSON structure style |
-| `displayMode` | `"inlayHints" \| "codeLens"` | `"inlayHints"` | Translation display surface; `codeLens` is experimental |
-| `functionPatterns` | `string[]` | See below | Custom regex patterns |
-
-</details>
-
-<details>
-<summary><strong>🧪 Experimental Code Lens Display</strong></summary>
-
-```json
-{
-  "displayMode": "codeLens"
-}
-```
-
-Use `codeLens` only with a Zed build that supports `code_lens`. The default remains `inlayHints`.
-
-</details>
-
-<details>
-<summary><strong>🔧 Custom Function Patterns</strong></summary>
-
-```json
-{
-  "functionPatterns": [
-    "t\\s*\\(\\s*[\"']([^\"']+)[\"']",
-    "translate\\s*\\(\\s*[\"']([^\"']+)[\"']",
-    "i18n\\.get\\s*\\(\\s*[\"']([^\"']+)[\"']"
-  ]
-}
-```
-
-</details>
-
-## 📁 Supported File Formats
+## Supported Translation Formats
 
 | Format | Extensions |
 |--------|------------|
 | JSON | `.json` |
-| YAML | `.yaml` `.yml` |
+| YAML | `.yaml`, `.yml` |
 | PHP | `.php` |
-| ARB (Flutter) | `.arb` |
+| ARB | `.arb` |
 
-**Nested structure:**
-```
+Directory-per-locale:
+
+```text
 locales/
-├── en/
-│   └── common.json
-├── vi/
-│   └── common.json
-└── ja/
-    └── common.json
+  en/
+    common.json
+  vi/
+    common.json
 ```
 
-**Or flat structure:**
-```
+Flat files:
+
+```text
 locales/
-├── en.json
-├── vi.json
-└── ja.json
+  en.json
+  vi.json
 ```
 
-**Flutter ARB structure:**
-```
+Flutter ARB:
+
+```text
 lib/
-└── l10n/
-    ├── app_en.arb
-    ├── app_es.arb
-    └── app_vi.arb
+  l10n/
+    app_en.arb
+    app_vi.arb
 ```
 
-## 🛠️ Development
+## Development
 
 ```bash
-cargo test          # Run tests
-cargo build         # Debug build
-cargo build -r      # Release build
-
-# Run with debug logging
+cargo test
+cargo build
+cargo build --release
 RUST_LOG=debug ./target/release/intl-lens
 ```
 
-## 🤝 Contributing
+## Contributing
 
-Contributions are welcome! Here's how:
+Good first areas:
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feat/amazing-feature`)
-3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-4. Push to the branch (`git push origin feat/amazing-feature`)
-5. Open a Pull Request
+- CLI tests for audit and check workflows
+- MCP client compatibility tests
+- Auto-fix dry-run implementation
+- More translation file formats
+- Better key detection with AST or tree-sitter
 
-### Ideas for Contribution
+See [ROADMAP.md](ROADMAP.md) for the current product direction.
 
-- [ ] Extract hardcoded strings to translation files
-- [ ] Support for more file formats (TOML, PO)
-- [ ] Namespace support for large projects
-- [ ] Translation file validation
-- [ ] Integration with translation services
+## License
 
-## 📄 License
-
-MIT © [Trong Nguyen](https://github.com/nguyenphutrong)
-
----
-
-<div align="center">
-
-**If this project helps you, consider giving it a ⭐**
-
-[Report Bug](https://github.com/nguyenphutrong/intl-lens/issues) · [Request Feature](https://github.com/nguyenphutrong/intl-lens/issues)
-
-</div>
+MIT (c) [Trong Nguyen](https://github.com/nguyenphutrong)

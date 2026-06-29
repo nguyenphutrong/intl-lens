@@ -3,18 +3,19 @@
 ## 1. Project Overview
 
 ### Project Name
-**Intl Lens** - AI-Powered Internationalization Tool
+**Intl Lens** - i18n Intelligence Layer for Codebases
 
 ### Project Type
-Open-source developer tool: LSP server, CLI tool, and MCP server for internationalization (i18n) management.
+Open-source developer tool: reusable Rust core with LSP, CLI, and MCP surfaces for internationalization (i18n) management.
 
 ### Core Feature Summary
-A comprehensive i18n tooling solution that provides inline translation visibility, missing key detection, and AI-agent-ready auditing capabilities for multiple frameworks and languages.
+Intl Lens gives developers, CI systems, and AI coding agents structured visibility into translation keys, coverage, placeholder safety, and source usage across multiple frameworks and languages.
 
 ### Target Users
 - **Primary**: Software developers working on multi-language applications
-- **Secondary**: AI coding agents (Claude, Cursor, etc.) that need to understand and manage translation states
-- **Tertiary**: DevOps/CI teams requiring i18n validation in build pipelines
+- **Secondary**: DevOps/CI teams requiring i18n validation in build pipelines
+- **Tertiary**: AI coding agents (Codex, Claude, Cursor, etc.) that need to understand and manage translation states
+- **Future**: QA, product, content, and translator teams using a dashboard or desktop manager
 
 ---
 
@@ -29,7 +30,7 @@ A comprehensive i18n tooling solution that provides inline translation visibilit
 5. **Placeholder Mismatches**: Translation placeholders (e.g., `{{name}}` vs `{name}`) often mismatch across locales, causing runtime errors
 
 ### Market Gap
-No unified tool combines LSP-level editor integration, CLI auditing, and AI-agent MCP interface for i18n management across multiple frameworks.
+No unified tool combines LSP-level editor integration, CI-friendly auditing, and an AI-agent MCP interface for i18n management across multiple frameworks.
 
 ---
 
@@ -37,18 +38,18 @@ No unified tool combines LSP-level editor integration, CLI auditing, and AI-agen
 
 ### Goals
 
-1. **Editor Integration**: Provide real-time i18n hints, autocomplete, and go-to-definition in Zed (and potentially other editors via LSP)
-2. **Comprehensive Auditing**: Detect missing translations, unused keys, and placeholder mismatches
-3. **AI-Ready Interface**: Enable AI agents to query translation state and receive actionable fix suggestions
-4. **Multi-Framework Support**: Support major i18n libraries: react-i18next, vue-i18n, Laravel, Flutter, Angular, etc.
-5. **Flexible Output**: Support CLI output in terminal, JSON, and Markdown formats
+1. **Reusable Core**: Keep scanner, parser, config, store, and audit logic shared across all surfaces
+2. **Editor Integration**: Provide real-time i18n hints, autocomplete, and go-to-definition in Zed first, then other LSP-capable editors
+3. **CI-Ready Auditing**: Detect missing translations, unused keys, and placeholder mismatches with machine-readable output and meaningful exit codes
+4. **AI-Ready Interface**: Enable AI agents to query translation state and receive actionable fix suggestions
+5. **Multi-Framework Support**: Support major i18n libraries: react-i18next, vue-i18n, Laravel, Flutter, Angular, etc.
 
 ### Non-Goals
 
-1. **Translation Services**: NOT a translation service or API (users can integrate their own)
-2. **Automatic Translation**: NOT an auto-translator (AI agent decides how to translate)
-3. **Editor-dependent**: While LSP is valuable, the CLI/MCP tools work independently
-4. **Translation File Editing**: Basic read-only auditing; advanced editing via CLI suggestions
+1. **Cloud Service**: Intl Lens should not require a hosted backend for core auditing
+2. **Unreviewed Translation Writes**: Provider-generated or AI-generated translations must go through review or dry-run workflows before write mode
+3. **Editor Dependency**: Zed is the first editor surface, but CLI and MCP must work independently
+4. **Team Collaboration Platform**: Comments, assignments, and hosted review workflows are out of scope until the local tooling is stable
 
 ---
 
@@ -279,7 +280,7 @@ Priority order:
 
 ### 8.1 Developer Flow (Editor)
 
-1. Open project in Zed
+1. Open project in Zed or another future LSP client
 2. Type `t("common.buttons.save")`
 3. See inline hint: "Save"
 4. Hover to see all locale translations
@@ -330,18 +331,20 @@ User: How do I fix the missing keys?
 - [x] Support react-i18next, vue-i18n, Laravel, Flutter
 
 ### 9.2 CLI
-- [ ] `audit` command runs without errors
-- [ ] Output matches expected format (terminal/json/markdown)
-- [ ] Missing translations correctly identified
-- [ ] Unused keys correctly identified
-- [ ] Placeholder validation works
-- [ ] Exit codes reflect issues (0=success, 1=issues found)
+- [x] `audit` command exists and runs through the audit pipeline
+- [x] Output supports terminal, JSON, and Markdown formats
+- [x] Missing translations are reported
+- [x] Unused keys are reported
+- [x] Placeholder validation is included in audit reports
+- [x] Exit codes reflect issues (0=success, 1=issues found)
+- [ ] CI controls such as `--fail-on`, baselines, and ignore patterns are implemented
 
 ### 9.3 MCP Server
-- [ ] Implements MCP protocol
-- [ ] All 4 tools respond correctly
-- [ ] JSON output parseable by AI agents
-- [ ] STDIO transport works
+- [x] Implements stdio JSON-RPC transport for MCP clients
+- [x] Exposes 4 audit and validation tools
+- [x] Returns parseable structured JSON content
+- [x] Exposes config, audit, and translation inventory resources
+- [ ] Adds patch-producing tools with dry-run defaults
 
 ### 9.4 Performance
 - Scan 1000+ files in < 10 seconds
@@ -353,19 +356,19 @@ User: How do I fix the missing keys?
 ## 10. Future Considerations
 
 ### Potential Enhancements
-1. **Real-time sync**: WebSocket for live translation updates
-2. **Translation API integration**: Connect to DeepL, Google Translate
-3. **Git integration**: Auto-detect new keys from diff
-4. **Prettier integration**: Auto-format translation files
-5. **More editors**: VS Code, Neovim LSP clients
+1. **Safe auto-fix**: Add missing keys, remove unused keys through review, sort files, and preserve placeholders
+2. **Translation provider integration**: Connect to OpenAI, Anthropic, DeepL, Google Translate, or Azure Translator behind review mode
+3. **Git and PR integration**: Auto-detect changed keys and comment on pull requests
+4. **Dashboard or desktop manager**: Review coverage, edit translations, and export PR-ready patches
+5. **More editors**: VS Code, Neovim, and other LSP clients
 
 ### Out of Scope (v1)
-- Write operations (editing translation files)
-- Machine translation
+- Unreviewed write operations
+- Hosted translation management
 - Team collaboration features
 - Cloud dashboard
 
 ---
 
 *Document Version: 1.0*
-*Last Updated: 2026-04-11*
+*Last Updated: 2026-06-29*
