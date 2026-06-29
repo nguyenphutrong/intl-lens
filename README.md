@@ -32,8 +32,8 @@ Current surfaces:
 After the npm package is published, you can run I18n Lens without a global install:
 
 ```bash
-npx i18nlens audit
-bunx i18nlens fix --to-nested
+npx @i18nlens/cli audit
+bunx @i18nlens/cli fix --to-nested
 ```
 
 ### Zed Extension
