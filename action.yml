@@ -1,0 +1,62 @@
+name: Intl Lens
+description: Audit translation health with intl-lens in CI.
+
+inputs:
+  version:
+    description: Intl Lens release tag to install, or latest.
+    required: false
+    default: latest
+  workspace:
+    description: Project workspace to audit.
+    required: false
+    default: "."
+  fail-on:
+    description: Issue kinds that should fail the job.
+    required: false
+    default: missing,placeholder
+  max-unused:
+    description: Allow up to this many unused keys before failing when unused is enabled.
+    required: false
+    default: ""
+  baseline:
+    description: Baseline file with accepted existing issues.
+    required: false
+    default: ""
+  ignore-key-pattern:
+    description: Regex for translation keys to ignore.
+    required: false
+    default: ""
+  ignore-file:
+    description: Glob for source or locale files to ignore, relative to workspace.
+    required: false
+    default: ""
+  format:
+    description: Output format.
+    required: false
+    default: terminal
+  output:
+    description: Optional report output path.
+    required: false
+    default: ""
+  extra-args:
+    description: Additional arguments passed to intl-lens ci.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install and run Intl Lens
+      shell: bash
+      run: "$GITHUB_ACTION_PATH/scripts/github-action.sh"
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_WORKSPACE: ${{ inputs.workspace }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_MAX_UNUSED: ${{ inputs.max-unused }}
+        INPUT_BASELINE: ${{ inputs.baseline }}
+        INPUT_IGNORE_KEY_PATTERN: ${{ inputs.ignore-key-pattern }}
+        INPUT_IGNORE_FILE: ${{ inputs.ignore-file }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_OUTPUT: ${{ inputs.output }}
+        INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}

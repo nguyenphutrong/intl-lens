@@ -152,12 +152,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release -p intl-lens
-      - run: ./target/release/intl-lens ci --format markdown --output i18n-report.md
+      - uses: nguyenphutrong/intl-lens@v0.1.6
+        with:
+          fail-on: missing,placeholder
+          format: markdown
+          output: i18n-report.md
 ```
 
-A packaged GitHub Action is planned. See [ROADMAP.md](ROADMAP.md).
+The action installs the matching release binary and runs `intl-lens ci`.
 
 ## MCP
 

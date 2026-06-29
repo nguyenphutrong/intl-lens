@@ -57,7 +57,7 @@ Implemented in the CLI:
 
 Remaining work:
 
-- Package a GitHub Action.
+- Package a GitHub Action. Done as a composite action in `action.yml`.
 - Add a GitLab CI example.
 
 Target examples:
