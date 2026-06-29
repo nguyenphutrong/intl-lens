@@ -1,0 +1,18 @@
+i18n:
+  image: alpine:3.20
+  stage: test
+  variables:
+    INTL_LENS_VERSION: v0.1.6
+  before_script:
+    - apk add --no-cache curl tar
+    - curl --fail --location --silent --show-error
+      "https://github.com/nguyenphutrong/intl-lens/releases/download/${INTL_LENS_VERSION}/intl-lens-x86_64-unknown-linux-gnu.tar.gz"
+      --output intl-lens.tar.gz
+    - tar -xzf intl-lens.tar.gz
+    - chmod +x intl-lens
+  script:
+    - ./intl-lens ci --fail-on missing,placeholder --format markdown --output i18n-report.md
+  artifacts:
+    when: always
+    paths:
+      - i18n-report.md

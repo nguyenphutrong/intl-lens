@@ -161,6 +161,15 @@ jobs:
 
 The action installs the matching release binary and runs `intl-lens ci`.
 
+### GitLab CI Example
+
+```yaml
+include:
+  - local: examples/gitlab-ci.yml
+```
+
+Or copy [examples/gitlab-ci.yml](examples/gitlab-ci.yml) into your pipeline and adjust `INTL_LENS_VERSION`.
+
 ## MCP
 
 Start the MCP server from the project you want to inspect:
