@@ -9,6 +9,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use indicatif::{ProgressBar, ProgressStyle};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use walkdir::WalkDir;
 
 use crate::audit::{AuditReport, AuditResult, AuditSummary};
 use crate::config::I18nConfig;
@@ -55,6 +56,9 @@ enum Commands {
         /// Add missing translations to target locale files
         #[arg(long)]
         add_missing: bool,
+        /// Sort translation keys in supported locale files
+        #[arg(long)]
+        sort_keys: bool,
         /// Value to use when adding missing translations. Defaults to source text.
         #[arg(long)]
         placeholder: Option<String>,
@@ -217,8 +221,9 @@ where
         Commands::Fix {
             dry_run,
             add_missing,
+            sort_keys,
             placeholder,
-        } => run_fix(&cli.workspace, dry_run, add_missing, placeholder).await,
+        } => run_fix(&cli.workspace, dry_run, add_missing, sort_keys, placeholder).await,
     }
 }
 
@@ -685,6 +690,7 @@ async fn run_fix(
     workspace: &Path,
     dry_run: bool,
     add_missing: bool,
+    sort_keys: bool,
     placeholder: Option<String>,
 ) -> anyhow::Result<i32> {
     let config = I18nConfig::load_from_workspace(workspace);
@@ -713,14 +719,243 @@ async fn run_fix(
         return Ok(0);
     }
 
+    if sort_keys {
+        let summary = sort_translation_files(workspace, &config)?;
+        println!("Sorted {} translation files.", summary.sorted);
+        println!(
+            "Skipped {} unsupported or unchanged files.",
+            summary.skipped
+        );
+        return Ok(0);
+    }
+
     println!("Write mode requires an explicit fix option. Run `intl-lens fix --dry-run` to preview fixes.");
-    println!("Supported write option: `intl-lens fix --add-missing --placeholder _TODO_`.");
+    println!(
+        "Supported write options: `intl-lens fix --add-missing --placeholder _TODO_`, `intl-lens fix --sort-keys`."
+    );
     Ok(1)
 }
 
 struct MissingWriteSummary {
     added: usize,
     skipped: usize,
+}
+
+struct SortSummary {
+    sorted: usize,
+    skipped: usize,
+}
+
+enum SortOutcome {
+    Sorted,
+    Skipped,
+}
+
+fn sort_translation_files(workspace: &Path, config: &I18nConfig) -> anyhow::Result<SortSummary> {
+    let mut sorted = 0;
+    let mut skipped = 0;
+
+    for file in collect_translation_files(workspace, &config.locale_paths) {
+        match sort_translation_file(&file)? {
+            SortOutcome::Sorted => sorted += 1,
+            SortOutcome::Skipped => skipped += 1,
+        }
+    }
+
+    Ok(SortSummary { sorted, skipped })
+}
+
+fn collect_translation_files(workspace: &Path, locale_paths: &[String]) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+
+    for locale_path in locale_paths {
+        let trimmed = locale_path.trim_end_matches(['/', '\\']);
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if has_glob_meta(trimmed) {
+            collect_glob_translation_files(workspace, trimmed, &mut files);
+            continue;
+        }
+
+        let full_path = workspace.join(trimmed);
+        if full_path.is_file() {
+            files.push(full_path);
+        } else if full_path.exists() {
+            collect_dir_translation_files(&full_path, &mut files);
+        }
+    }
+
+    files.sort();
+    files.dedup();
+    files
+}
+
+fn collect_glob_translation_files(workspace: &Path, pattern: &str, files: &mut Vec<PathBuf>) {
+    let Ok(glob) = Glob::new(pattern) else {
+        return;
+    };
+    let matcher = glob.compile_matcher();
+
+    for entry in WalkDir::new(workspace)
+        .into_iter()
+        .filter_entry(|entry| !is_ignored_workspace_dir(entry.path()))
+        .filter_map(|entry| entry.ok())
+    {
+        let path = entry.path();
+        let Ok(relative_path) = path.strip_prefix(workspace) else {
+            continue;
+        };
+
+        if !matcher.is_match(relative_path) {
+            continue;
+        }
+
+        if path.is_dir() {
+            collect_dir_translation_files(path, files);
+        } else if path.is_file() {
+            files.push(path.to_path_buf());
+        }
+    }
+}
+
+fn has_glob_meta(path: &str) -> bool {
+    path.contains('*') || path.contains('?') || path.contains('[')
+}
+
+fn is_ignored_workspace_dir(path: &Path) -> bool {
+    if !path.is_dir() {
+        return false;
+    }
+
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            matches!(
+                name,
+                "node_modules" | ".git" | "target" | "dist" | "build" | ".nuxt" | ".output"
+            )
+        })
+}
+
+fn collect_dir_translation_files(dir: &Path, files: &mut Vec<PathBuf>) {
+    for entry in WalkDir::new(dir)
+        .max_depth(3)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
+        let path = entry.path();
+        if path.is_file() && is_translation_extension(path) {
+            files.push(path.to_path_buf());
+        }
+    }
+}
+
+fn is_translation_extension(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("json" | "yaml" | "yml" | "arb" | "php")
+    )
+}
+
+fn sort_translation_file(path: &Path) -> anyhow::Result<SortOutcome> {
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some("json") => sort_json_translation_file(path),
+        Some("yaml") | Some("yml") => sort_yaml_translation_file(path),
+        Some("arb") => sort_arb_translation_file(path),
+        _ => Ok(SortOutcome::Skipped),
+    }
+}
+
+fn sort_json_translation_file(path: &Path) -> anyhow::Result<SortOutcome> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read locale file {}", path.display()))?;
+    let mut json: serde_json::Value = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse JSON locale file {}", path.display()))?;
+    sort_json_value(&mut json);
+
+    let mut output = serde_json::to_string_pretty(&json)?;
+    output.push('\n');
+    write_if_changed(path, &content, output)
+}
+
+fn sort_arb_translation_file(path: &Path) -> anyhow::Result<SortOutcome> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read locale file {}", path.display()))?;
+    let mut json: serde_json::Value = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse ARB locale file {}", path.display()))?;
+    sort_json_value(&mut json);
+
+    let mut output = serde_json::to_string_pretty(&json)?;
+    output.push('\n');
+    write_if_changed(path, &content, output)
+}
+
+fn sort_yaml_translation_file(path: &Path) -> anyhow::Result<SortOutcome> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read locale file {}", path.display()))?;
+    let mut yaml: serde_yaml::Value = serde_yaml::from_str(&content)
+        .with_context(|| format!("Failed to parse YAML locale file {}", path.display()))?;
+    sort_yaml_value(&mut yaml);
+
+    let output = serde_yaml::to_string(&yaml)?;
+    write_if_changed(path, &content, output)
+}
+
+fn write_if_changed(path: &Path, before: &str, after: String) -> anyhow::Result<SortOutcome> {
+    if before == after {
+        return Ok(SortOutcome::Skipped);
+    }
+
+    std::fs::write(path, after)
+        .with_context(|| format!("Failed to write locale file {}", path.display()))?;
+    Ok(SortOutcome::Sorted)
+}
+
+fn sort_json_value(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for child in map.values_mut() {
+                sort_json_value(child);
+            }
+            map.sort_keys();
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                sort_json_value(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn sort_yaml_value(value: &mut serde_yaml::Value) {
+    match value {
+        serde_yaml::Value::Mapping(map) => {
+            let old_map = std::mem::take(map);
+            let mut entries: Vec<(serde_yaml::Value, serde_yaml::Value)> =
+                old_map.into_iter().collect();
+            for (_, child) in &mut entries {
+                sort_yaml_value(child);
+            }
+            entries.sort_by(|(left, _), (right, _)| yaml_sort_key(left).cmp(&yaml_sort_key(right)));
+            *map = entries.into_iter().collect();
+        }
+        serde_yaml::Value::Sequence(items) => {
+            for item in items {
+                sort_yaml_value(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn yaml_sort_key(value: &serde_yaml::Value) -> String {
+    match value {
+        serde_yaml::Value::String(value) => value.clone(),
+        other => serde_yaml::to_string(other).unwrap_or_default(),
+    }
 }
 
 fn apply_missing_translations(

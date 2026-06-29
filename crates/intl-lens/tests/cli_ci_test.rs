@@ -425,3 +425,142 @@ return [
         .success()
         .stdout(contains("\"missing_translations\": 0"));
 }
+
+#[test]
+fn fix_sort_keys_sorts_nested_json_locale_files() {
+    let workspace = write_workspace(&[
+        (
+            "locales/en.json",
+            r#"{"z":"Z","a":{"z":"Z","a":"A"},"m":"M"}"#,
+        ),
+        ("src/App.tsx", "export const App = () => null;"),
+    ]);
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--sort-keys");
+    command
+        .assert()
+        .success()
+        .stdout(contains("Sorted 1 translation files."))
+        .stdout(contains("Skipped 0 unsupported or unchanged files."));
+
+    let content = fs::read_to_string(workspace.path().join("locales/en.json")).expect("en json");
+    assert!(content.find("\n  \"a\"").unwrap() < content.find("\n  \"m\"").unwrap());
+    assert!(content.find("\n  \"m\"").unwrap() < content.find("\n  \"z\"").unwrap());
+    assert!(
+        content.find("\n    \"a\": \"A\"").unwrap() < content.find("\n    \"z\": \"Z\"").unwrap()
+    );
+}
+
+#[test]
+fn fix_sort_keys_sorts_nested_yaml_locale_files() {
+    let workspace = write_workspace(&[
+        ("locales/en.yaml", "z: Z\na:\n  z: Z\n  a: A\nm: M\n"),
+        ("src/App.tsx", "export const App = () => null;"),
+    ]);
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--sort-keys");
+    command.assert().success();
+
+    let content = fs::read_to_string(workspace.path().join("locales/en.yaml")).expect("en yaml");
+    assert!(content.find("a:").unwrap() < content.find("m:").unwrap());
+    assert!(content.find("m:").unwrap() < content.find("\nz:").unwrap());
+    assert!(content.find("  a: A").unwrap() < content.find("  z: Z").unwrap());
+}
+
+#[test]
+fn fix_sort_keys_sorts_arb_locale_files() {
+    let workspace = write_workspace(&[
+        (
+            "locales/app_en.arb",
+            r#"{"zLabel":"Z","@@locale":"en","aLabel":"A"}"#,
+        ),
+        ("src/App.tsx", "export const App = () => null;"),
+    ]);
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--sort-keys");
+    command.assert().success();
+
+    let content = fs::read_to_string(workspace.path().join("locales/app_en.arb")).expect("en arb");
+    assert!(content.find("\"@@locale\"").unwrap() < content.find("\"aLabel\"").unwrap());
+    assert!(content.find("\"aLabel\"").unwrap() < content.find("\"zLabel\"").unwrap());
+}
+
+#[test]
+fn fix_sort_keys_skips_php_locale_files() {
+    let workspace = write_workspace(&[
+        (
+            "locales/en.php",
+            r#"<?php
+
+return [
+    'z' => 'Z',
+    'a' => 'A',
+];
+"#,
+        ),
+        ("src/App.tsx", "export const App = () => null;"),
+    ]);
+    let before = fs::read_to_string(workspace.path().join("locales/en.php")).expect("php");
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--sort-keys");
+    command
+        .assert()
+        .success()
+        .stdout(contains("Sorted 0 translation files."))
+        .stdout(contains("Skipped 1 unsupported or unchanged files."));
+
+    let after = fs::read_to_string(workspace.path().join("locales/en.php")).expect("php");
+    assert_eq!(after, before);
+}
+
+#[test]
+fn fix_sort_keys_is_idempotent() {
+    let workspace = write_workspace(&[
+        ("locales/en.json", r#"{"b":"B","a":"A"}"#),
+        ("src/App.tsx", "export const App = () => null;"),
+    ]);
+
+    let mut first = intl_lens();
+    first
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--sort-keys");
+    first.assert().success();
+    let once = fs::read_to_string(workspace.path().join("locales/en.json")).expect("en json");
+
+    let mut second = intl_lens();
+    second
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--sort-keys");
+    second
+        .assert()
+        .success()
+        .stdout(contains("Sorted 0 translation files."))
+        .stdout(contains("Skipped 1 unsupported or unchanged files."));
+    let twice = fs::read_to_string(workspace.path().join("locales/en.json")).expect("en json");
+
+    assert_eq!(twice, once);
+}
