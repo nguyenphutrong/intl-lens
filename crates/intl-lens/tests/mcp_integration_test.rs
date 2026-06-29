@@ -103,6 +103,7 @@ fn lists_all_mcp_tools_and_resources() {
             "audit_i18n",
             "get_missing_translations",
             "suggest_translation_fixes",
+            "translate_missing_keys",
             "validate_placeholders"
         ]
     );
@@ -182,6 +183,69 @@ fn mcp_tools_return_structured_i18n_data() {
         .expect("issues")
         .iter()
         .any(|issue| issue["locale_values"].get("vi").is_some()));
+}
+
+#[test]
+fn mcp_translate_missing_keys_returns_dry_run_patch() {
+    let workspace = write_workspace();
+
+    let patch = call_mcp(
+        workspace.path(),
+        tool_call(
+            "translate_missing_keys",
+            json!({
+                "translations": [{
+                    "key": "checkout.submit",
+                    "locale": "vi",
+                    "value": "Gui don hang"
+                }]
+            }),
+        ),
+    );
+
+    let content = &patch["result"]["structuredContent"];
+    assert_eq!(content["dry_run"], true);
+    assert_eq!(content["patches"][0]["key"], "checkout.submit");
+    assert_eq!(content["patches"][0]["locale"], "vi");
+    assert!(content["patches"][0]["unified_diff"]
+        .as_str()
+        .expect("diff")
+        .contains("+    \"submit\": \"Gui don hang\""));
+
+    let vi_json = fs::read_to_string(workspace.path().join("locales/vi.json")).expect("vi json");
+    assert!(!vi_json.contains("Gui don hang"));
+}
+
+#[test]
+fn mcp_translate_missing_keys_rejects_placeholder_mismatch() {
+    let workspace = write_workspace();
+    fs::write(
+        workspace.path().join("locales/en.json"),
+        r#"{"checkout":{"submit":"Submit order"},"greeting":"Hello {name}","legacy":"Legacy","welcome":"Welcome {name}"}"#,
+    )
+    .expect("add placeholder missing key");
+
+    let patch = call_mcp(
+        workspace.path(),
+        tool_call(
+            "translate_missing_keys",
+            json!({
+                "translations": [{
+                    "key": "welcome",
+                    "locale": "vi",
+                    "value": "Xin chao"
+                }]
+            }),
+        ),
+    );
+
+    let content = &patch["result"]["structuredContent"];
+    assert!(content["patches"].as_array().expect("patches").is_empty());
+    assert_eq!(content["skipped"][0]["reason"], "placeholder mismatch");
+    assert_eq!(
+        content["skipped"][0]["expected_placeholders"],
+        json!(["name"])
+    );
 }
 
 #[test]

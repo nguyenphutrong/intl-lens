@@ -119,11 +119,11 @@ Current tools:
 - `audit_i18n`
 - `get_missing_translations`
 - `suggest_translation_fixes`
+- `translate_missing_keys`
 - `validate_placeholders`
 
 Planned tools:
 
-- `translate_missing_keys`
 - `apply_translation_patch`
 - `extract_hardcoded_strings`
 - `review_i18n_pr`

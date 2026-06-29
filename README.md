@@ -194,6 +194,7 @@ Available tools:
 | `audit_i18n` | Return missing translations, unused keys, placeholder issues, and summary data |
 | `get_missing_translations` | Filter missing keys by locale and optionally include source usage context |
 | `suggest_translation_fixes` | Return file targets and source text for a missing key |
+| `translate_missing_keys` | Return dry-run diffs for caller-provided translations of missing keys |
 | `validate_placeholders` | Check placeholder consistency for one key |
 
 Available resources:
@@ -207,7 +208,7 @@ Available resources:
 Example agent workflow:
 
 ```text
-Run intl-lens audit, list keys missing in Vietnamese, suggest fixes, then validate placeholders.
+Run intl-lens audit, list keys missing in Vietnamese, provide translated values, get dry-run diffs, then validate placeholders.
 ```
 
 ## Configuration

@@ -7,6 +7,7 @@ use intl_lens::audit::{
 };
 use intl_lens::config::I18nConfig;
 use intl_lens::i18n::store::TranslationStore;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -61,6 +62,21 @@ struct SuggestTranslationFixesParams {
     workspace: Option<PathBuf>,
     key: String,
     target_locales: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct TranslateMissingKeysParams {
+    workspace: Option<PathBuf>,
+    dry_run: Option<bool>,
+    translations: Vec<TranslationPatchInput>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TranslationPatchInput {
+    key: String,
+    locale: String,
+    value: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -185,6 +201,10 @@ impl McpServer {
             "suggest_translation_fixes" => {
                 let arguments: SuggestTranslationFixesParams = serde_json::from_value(arguments)?;
                 self.suggest_translation_fixes(arguments)?
+            }
+            "translate_missing_keys" => {
+                let arguments: TranslateMissingKeysParams = serde_json::from_value(arguments)?;
+                self.translate_missing_keys(arguments)?
             }
             "validate_placeholders" => {
                 let arguments: ValidatePlaceholdersParams = serde_json::from_value(arguments)?;
@@ -398,6 +418,91 @@ impl McpServer {
         Ok(serde_json::to_value(response)?)
     }
 
+    fn translate_missing_keys(&self, params: TranslateMissingKeysParams) -> Result<Value> {
+        if params.dry_run == Some(false) {
+            return Err(anyhow!(
+                "translate_missing_keys only supports dry_run=true. Use apply_translation_patch when write mode is available."
+            ));
+        }
+
+        let workspace = self.resolve_workspace(params.workspace);
+        let report = self.build_report(&workspace)?;
+        let mut patches = Vec::new();
+        let mut skipped = Vec::new();
+
+        for translation in params.translations {
+            if translation.key.trim().is_empty() || translation.locale.trim().is_empty() {
+                skipped.push(json!({
+                    "key": translation.key,
+                    "locale": translation.locale,
+                    "reason": "key and locale are required"
+                }));
+                continue;
+            }
+
+            let Some(missing) = report.missing.iter().find(|item| {
+                item.key == translation.key && item.missing_in.contains(&translation.locale)
+            }) else {
+                skipped.push(json!({
+                    "key": translation.key,
+                    "locale": translation.locale,
+                    "reason": "translation is not currently missing"
+                }));
+                continue;
+            };
+
+            let expected_placeholders = extract_placeholders(&missing.source_value);
+            let actual_placeholders = extract_placeholders(&translation.value);
+            if expected_placeholders != actual_placeholders {
+                skipped.push(json!({
+                    "key": translation.key,
+                    "locale": translation.locale,
+                    "reason": "placeholder mismatch",
+                    "expected_placeholders": expected_placeholders,
+                    "actual_placeholders": actual_placeholders
+                }));
+                continue;
+            }
+
+            let Some(file) = find_locale_file(&workspace, &translation.locale) else {
+                skipped.push(json!({
+                    "key": translation.key,
+                    "locale": translation.locale,
+                    "reason": "target locale file was not found"
+                }));
+                continue;
+            };
+
+            let before = std::fs::read_to_string(&file)
+                .with_context(|| format!("Failed to read locale file {}", file.display()))?;
+            let Some(after) =
+                add_translation_to_content(&file, &before, &translation.key, &translation.value)?
+            else {
+                skipped.push(json!({
+                    "key": translation.key,
+                    "locale": translation.locale,
+                    "file": file,
+                    "reason": "target file format is not supported for translation patches"
+                }));
+                continue;
+            };
+
+            patches.push(json!({
+                "key": translation.key,
+                "locale": translation.locale,
+                "file": file,
+                "unified_diff": unified_diff(&workspace, &file, &before, &after)
+            }));
+        }
+
+        Ok(json!({
+            "workspace": workspace,
+            "dry_run": true,
+            "patches": patches,
+            "skipped": skipped
+        }))
+    }
+
     fn validate_placeholders(&self, params: ValidatePlaceholdersParams) -> Result<Value> {
         if params.key.trim().is_empty() {
             return Err(anyhow!("'key' is required"));
@@ -470,9 +575,187 @@ fn find_locale_file(workspace: &Path, locale: &str) -> Option<PathBuf> {
                 return Some(candidate);
             }
         }
+
+        if let Ok(entries) = std::fs::read_dir(&base) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|extension| extension.to_str()) != Some("arb") {
+                    continue;
+                }
+
+                let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                    continue;
+                };
+
+                if stem == locale || stem.ends_with(&format!("_{locale}")) {
+                    return Some(path);
+                }
+            }
+        }
     }
 
     None
+}
+
+fn add_translation_to_content(
+    path: &Path,
+    content: &str,
+    key: &str,
+    value: &str,
+) -> Result<Option<String>> {
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some("json") => add_json_translation_to_content(content, key, value).map(Some),
+        Some("yaml") | Some("yml") => {
+            add_yaml_translation_to_content(content, key, value).map(Some)
+        }
+        Some("arb") => add_arb_translation_to_content(content, key, value).map(Some),
+        Some("php") => add_php_translation_to_content(content, key, value).map(Some),
+        _ => Ok(None),
+    }
+}
+
+fn add_json_translation_to_content(content: &str, key: &str, value: &str) -> Result<String> {
+    let mut json: serde_json::Value = serde_json::from_str(content)?;
+    insert_json_key(&mut json, key, value);
+
+    let mut output = serde_json::to_string_pretty(&json)?;
+    output.push('\n');
+    Ok(output)
+}
+
+fn add_yaml_translation_to_content(content: &str, key: &str, value: &str) -> Result<String> {
+    let mut yaml: serde_yaml::Value = serde_yaml::from_str(content)?;
+    insert_yaml_key(&mut yaml, key, value);
+    Ok(serde_yaml::to_string(&yaml)?)
+}
+
+fn add_arb_translation_to_content(content: &str, key: &str, value: &str) -> Result<String> {
+    let mut json: serde_json::Value = serde_json::from_str(content)?;
+    if !json.is_object() {
+        json = serde_json::json!({});
+    }
+    json[key] = serde_json::Value::String(value.to_string());
+
+    let mut output = serde_json::to_string_pretty(&json)?;
+    output.push('\n');
+    Ok(output)
+}
+
+fn add_php_translation_to_content(content: &str, key: &str, value: &str) -> Result<String> {
+    let insert_at = content
+        .rfind("];")
+        .ok_or_else(|| anyhow!("Failed to find closing PHP short array"))?;
+    let escaped_key = escape_php_single_quoted(key);
+    let escaped_value = escape_php_single_quoted(value);
+    let indent = detect_php_root_indent(content);
+
+    let mut output = String::new();
+    output.push_str(&content[..insert_at]);
+    if !output.ends_with('\n') {
+        output.push('\n');
+    }
+    output.push_str(&format!("{indent}'{escaped_key}' => '{escaped_value}',\n"));
+    output.push_str(&content[insert_at..]);
+    Ok(output)
+}
+
+fn insert_json_key(json: &mut serde_json::Value, key: &str, value: &str) {
+    if !json.is_object() {
+        *json = serde_json::json!({});
+    }
+
+    let parts: Vec<&str> = key.split('.').collect();
+    let mut current = json;
+
+    for part in &parts[..parts.len().saturating_sub(1)] {
+        if !current.get(*part).is_some_and(serde_json::Value::is_object) {
+            current[*part] = serde_json::json!({});
+        }
+        current = &mut current[*part];
+    }
+
+    if let Some(last) = parts.last() {
+        current[*last] = serde_json::Value::String(value.to_string());
+    }
+}
+
+fn insert_yaml_key(yaml: &mut serde_yaml::Value, key: &str, value: &str) {
+    if !yaml.is_mapping() {
+        *yaml = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
+    }
+
+    let parts: Vec<&str> = key.split('.').collect();
+    let mut current = yaml;
+
+    for part in &parts[..parts.len().saturating_sub(1)] {
+        let key = serde_yaml::Value::String((*part).to_string());
+        if !current.get(&key).is_some_and(serde_yaml::Value::is_mapping) {
+            current[key.clone()] = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
+        }
+        current = &mut current[key];
+    }
+
+    if let Some(last) = parts.last() {
+        current[serde_yaml::Value::String((*last).to_string())] =
+            serde_yaml::Value::String(value.to_string());
+    }
+}
+
+fn escape_php_single_quoted(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
+fn detect_php_root_indent(content: &str) -> String {
+    content
+        .lines()
+        .find_map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('\'') || trimmed.starts_with('"') {
+                Some(line[..line.len() - trimmed.len()].to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "    ".to_string())
+}
+
+fn extract_placeholders(value: &str) -> Vec<String> {
+    let mut placeholders = Vec::new();
+    for pattern in [
+        r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}",
+        r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}",
+        r"%[sdif]",
+    ] {
+        let regex = Regex::new(pattern).expect("placeholder regex");
+        for capture in regex.captures_iter(value) {
+            let placeholder = capture
+                .get(1)
+                .or_else(|| capture.get(0))
+                .map(|match_| match_.as_str().to_string());
+            if let Some(placeholder) = placeholder {
+                if !placeholders.contains(&placeholder) {
+                    placeholders.push(placeholder);
+                }
+            }
+        }
+    }
+    placeholders.sort();
+    placeholders
+}
+
+fn unified_diff(workspace: &Path, path: &Path, before: &str, after: &str) -> String {
+    let relative = path.strip_prefix(workspace).unwrap_or(path).display();
+    let mut diff = String::new();
+    diff.push_str(&format!("--- a/{relative}\n"));
+    diff.push_str(&format!("+++ b/{relative}\n"));
+    diff.push_str("@@\n");
+    for line in before.lines() {
+        diff.push_str(&format!("-{line}\n"));
+    }
+    for line in after.lines() {
+        diff.push_str(&format!("+{line}\n"));
+    }
+    diff
 }
 
 fn tool_definitions() -> Vec<ToolDefinition> {
@@ -511,6 +794,30 @@ fn tool_definitions() -> Vec<ToolDefinition> {
                     "workspace": { "type": "string" },
                     "key": { "type": "string" },
                     "target_locales": { "type": "array", "items": { "type": "string" }, "default": [] }
+                }
+            }),
+        },
+        ToolDefinition {
+            name: "translate_missing_keys",
+            description: "Return dry-run patches for caller-provided translations of missing keys.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workspace": { "type": "string" },
+                    "dry_run": { "type": "boolean", "default": true },
+                    "translations": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["key", "locale", "value"],
+                            "properties": {
+                                "key": { "type": "string" },
+                                "locale": { "type": "string" },
+                                "value": { "type": "string" }
+                            }
+                        },
+                        "default": []
+                    }
                 }
             }),
         },
@@ -612,7 +919,7 @@ mod tests {
     #[test]
     fn serializes_tool_definitions() {
         let tools = tool_definitions();
-        assert_eq!(tools.len(), 4);
+        assert_eq!(tools.len(), 5);
         assert_eq!(tools[0].name, "audit_i18n");
     }
 
