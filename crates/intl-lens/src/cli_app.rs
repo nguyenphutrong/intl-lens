@@ -52,6 +52,12 @@ enum Commands {
         /// Dry run - show what would be changed without making changes
         #[arg(long)]
         dry_run: bool,
+        /// Add missing translations to target locale files
+        #[arg(long)]
+        add_missing: bool,
+        /// Value to use when adding missing translations. Defaults to source text.
+        #[arg(long)]
+        placeholder: Option<String>,
     },
 }
 
@@ -208,7 +214,11 @@ where
             .await
         }
         Commands::Check { files } => run_check(&cli.workspace, files, cli.format, cli.output).await,
-        Commands::Fix { dry_run } => run_fix(&cli.workspace, dry_run).await,
+        Commands::Fix {
+            dry_run,
+            add_missing,
+            placeholder,
+        } => run_fix(&cli.workspace, dry_run, add_missing, placeholder).await,
     }
 }
 
@@ -671,14 +681,12 @@ async fn run_check(
     Ok(if missing.is_empty() { 0 } else { 1 })
 }
 
-async fn run_fix(workspace: &Path, dry_run: bool) -> anyhow::Result<i32> {
-    if !dry_run {
-        println!(
-            "Write mode is not implemented yet. Run `intl-lens fix --dry-run` to preview fixes."
-        );
-        return Ok(1);
-    }
-
+async fn run_fix(
+    workspace: &Path,
+    dry_run: bool,
+    add_missing: bool,
+    placeholder: Option<String>,
+) -> anyhow::Result<i32> {
     let config = I18nConfig::load_from_workspace(workspace);
     let store = TranslationStore::new(workspace.to_path_buf());
     store.scan_and_load(&config.locale_paths);
@@ -687,8 +695,97 @@ async fn run_fix(workspace: &Path, dry_run: bool) -> anyhow::Result<i32> {
     result.scan_codebase();
     let report = result.generate_report();
 
-    println!("{}", format_fix_dry_run(workspace, &config, &report));
-    Ok(0)
+    if dry_run {
+        println!("{}", format_fix_dry_run(workspace, &config, &report));
+        return Ok(0);
+    }
+
+    if add_missing {
+        let summary =
+            apply_missing_translations(workspace, &config, &report, placeholder.as_deref())?;
+        println!("Added {} missing translations.", summary.added);
+        if summary.skipped > 0 {
+            println!(
+                "Skipped {} missing translations without a supported JSON target file.",
+                summary.skipped
+            );
+        }
+        return Ok(0);
+    }
+
+    println!("Write mode requires an explicit fix option. Run `intl-lens fix --dry-run` to preview fixes.");
+    println!("Supported write option: `intl-lens fix --add-missing --placeholder _TODO_`.");
+    Ok(1)
+}
+
+struct MissingWriteSummary {
+    added: usize,
+    skipped: usize,
+}
+
+fn apply_missing_translations(
+    workspace: &Path,
+    config: &I18nConfig,
+    report: &AuditReport,
+    placeholder: Option<&str>,
+) -> anyhow::Result<MissingWriteSummary> {
+    let mut added = 0;
+    let mut skipped = 0;
+
+    for item in &report.missing {
+        for locale in &item.missing_in {
+            let Some(file) = find_locale_file(workspace, config, locale) else {
+                skipped += 1;
+                continue;
+            };
+
+            if file.extension().and_then(|extension| extension.to_str()) != Some("json") {
+                skipped += 1;
+                continue;
+            }
+
+            let value = placeholder.unwrap_or(&item.source_value);
+            add_json_translation(&file, &item.key, value)?;
+            added += 1;
+        }
+    }
+
+    Ok(MissingWriteSummary { added, skipped })
+}
+
+fn add_json_translation(path: &Path, key: &str, value: &str) -> anyhow::Result<()> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read locale file {}", path.display()))?;
+    let mut json: serde_json::Value = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse JSON locale file {}", path.display()))?;
+
+    insert_json_key(&mut json, key, value);
+
+    let mut output = serde_json::to_string_pretty(&json)?;
+    output.push('\n');
+    std::fs::write(path, output)
+        .with_context(|| format!("Failed to write locale file {}", path.display()))?;
+    Ok(())
+}
+
+fn insert_json_key(json: &mut serde_json::Value, key: &str, value: &str) {
+    if !json.is_object() {
+        *json = serde_json::json!({});
+    }
+
+    let parts: Vec<&str> = key.split('.').collect();
+    let mut current = json;
+
+    for part in &parts[..parts.len().saturating_sub(1)] {
+        if !current.get(*part).is_some_and(serde_json::Value::is_object) {
+            current[*part] = serde_json::json!({});
+        }
+        current = &mut current[*part];
+    }
+
+    if let Some(last) = parts.last() {
+        current[*last] = serde_json::Value::String(value.to_string());
+    }
 }
 
 fn format_fix_dry_run(workspace: &Path, config: &I18nConfig, report: &AuditReport) -> String {

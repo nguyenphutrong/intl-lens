@@ -270,3 +270,56 @@ fn fix_dry_run_outputs_reviewable_suggestions() {
         .stdout(contains("greeting"))
         .stdout(contains("action: review_placeholder_mismatch"));
 }
+
+#[test]
+fn fix_add_missing_writes_json_placeholder_values() {
+    let workspace = write_workspace(&[
+        ("locales/en.json", r#"{"checkout":{"submit":"Submit"}}"#),
+        ("locales/vi.json", r#"{}"#),
+        (
+            "src/App.tsx",
+            r#"export const App = () => t("checkout.submit");"#,
+        ),
+    ]);
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--add-missing")
+        .arg("--placeholder")
+        .arg("_TODO_");
+    command
+        .assert()
+        .success()
+        .stdout(contains("Added 1 missing translations."));
+
+    let content = fs::read_to_string(workspace.path().join("locales/vi.json")).expect("vi json");
+    let json: Value = serde_json::from_str(&content).expect("updated json");
+    assert_eq!(json["checkout"]["submit"], "_TODO_");
+}
+
+#[test]
+fn fix_add_missing_defaults_to_source_text() {
+    let workspace = write_workspace(&[
+        ("locales/en.json", r#"{"checkout":{"submit":"Submit"}}"#),
+        ("locales/vi.json", r#"{}"#),
+        (
+            "src/App.tsx",
+            r#"export const App = () => t("checkout.submit");"#,
+        ),
+    ]);
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--add-missing");
+    command.assert().success();
+
+    let content = fs::read_to_string(workspace.path().join("locales/vi.json")).expect("vi json");
+    let json: Value = serde_json::from_str(&content).expect("updated json");
+    assert_eq!(json["checkout"]["submit"], "Submit");
+}

@@ -24,7 +24,7 @@ Workspace version: `0.1.6`
 | Rust workspace | Done | `intl-lens` core crate plus Zed extension crate |
 | LSP server | Done | Inline hints, hover, diagnostics, autocomplete, go to definition, reload |
 | CLI audit | Usable | `audit`, `check`, JSON, Markdown, terminal output, CI exit codes |
-| CLI fix | Stub | `fix --dry-run` exists but only prints a placeholder message |
+| CLI fix | Partial | `fix --dry-run` shows reviewable suggestions; `--add-missing` writes JSON locale files |
 | MCP server | Usable | Tools and resources are implemented over stdio JSON-RPC |
 | Audit model | Usable | Missing translations, unused keys, placeholder issues, fix suggestions |
 | Config | Usable | `.intl-lens.json`, `intl-lens.config.json`, `.zed/i18n.json` |
@@ -80,9 +80,9 @@ Goal: turn audit suggestions into reviewable file changes.
 
 Planned work:
 
-- Implement `fix --dry-run`.
-- Add `--add-missing`.
-- Add `--placeholder "_TODO_"`.
+- Implement `fix --dry-run`. Done.
+- Add `--add-missing`. JSON locale files done; YAML, PHP, and ARB remain.
+- Add `--placeholder "_TODO_"`. Done for JSON missing-key writes.
 - Add `--remove-unused --interactive`.
 - Add `--sort-keys`.
 - Preserve file format and minimize diff noise.
