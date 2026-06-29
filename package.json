@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nguyenphutrong/i18nlens.git"
+    "url": "git+https://github.com/nguyenphutrong/intl-lens.git"
   },
   "bin": {
     "i18nlens": "bin/i18nlens.js"

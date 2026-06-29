@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -107,3 +108,28 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+
+  publish-npm:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Verify npm package version matches tag
+        run: |
+          node -e "const pkg=require('./package.json'); const tag=process.env.GITHUB_REF_NAME; if (tag !== 'v' + pkg.version) { throw new Error(`tag ${tag} does not match package version v${pkg.version}`); }"
+
+      - name: Validate npm package
+        run: npm pack --dry-run
+
+      - name: Publish npm package
+        run: npm publish
