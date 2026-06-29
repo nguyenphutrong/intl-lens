@@ -21,6 +21,9 @@ pub struct I18nConfig {
 
     #[serde(default = "default_function_patterns")]
     pub function_patterns: Vec<String>,
+
+    #[serde(default = "default_display_mode")]
+    pub display_mode: DisplayMode,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -32,6 +35,14 @@ pub enum KeyStyle {
     Auto,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DisplayMode {
+    #[default]
+    InlayHints,
+    CodeLens,
+}
+
 impl Default for I18nConfig {
     fn default() -> Self {
         Self {
@@ -40,6 +51,7 @@ impl Default for I18nConfig {
             key_style: default_key_style(),
             namespace_enabled: false,
             function_patterns: default_function_patterns(),
+            display_mode: default_display_mode(),
         }
     }
 }
@@ -157,6 +169,10 @@ fn default_function_patterns() -> Vec<String> {
         r#"['"]([^'"]+)['"]\s*\.trParams\("#.to_string(),
         r#"['"]([^'"]+)['"]\s*\.trPlural\("#.to_string(),
     ]
+}
+
+fn default_display_mode() -> DisplayMode {
+    DisplayMode::InlayHints
 }
 
 fn detect_framework_locale_paths(root: &Path) -> Vec<String> {
@@ -383,6 +399,21 @@ mod tests {
             config.locale_paths,
             vec!["src/lang".to_string(), "**/*/i18n/locales".to_string()]
         );
+    }
+
+    #[test]
+    fn defaults_to_inlay_hints_display_mode() {
+        let config = serde_json::from_str::<I18nConfig>(r#"{}"#).expect("parse config");
+
+        assert_eq!(config.display_mode, DisplayMode::InlayHints);
+    }
+
+    #[test]
+    fn reads_code_lens_display_mode() {
+        let config = serde_json::from_str::<I18nConfig>(r#"{"displayMode":"codeLens"}"#)
+            .expect("parse config");
+
+        assert_eq!(config.display_mode, DisplayMode::CodeLens);
     }
 
     fn test_workspace(name: &str) -> std::path::PathBuf {

@@ -147,7 +147,21 @@ Create `.zed/i18n.json` in your project root:
 | `localePaths` | `string[]` | `["locales", "i18n", ...]` | Where to find translation files |
 | `sourceLocale` | `string` | `"en"` | Your primary language |
 | `keyStyle` | `"nested" \| "flat"` | `"auto"` | JSON structure style |
+| `displayMode` | `"inlayHints" \| "codeLens"` | `"inlayHints"` | Translation display surface; `codeLens` is experimental |
 | `functionPatterns` | `string[]` | See below | Custom regex patterns |
+
+</details>
+
+<details>
+<summary><strong>🧪 Experimental Code Lens Display</strong></summary>
+
+```json
+{
+  "displayMode": "codeLens"
+}
+```
+
+Use `codeLens` only with a Zed build that supports `code_lens`. The default remains `inlayHints`.
 
 </details>
 
