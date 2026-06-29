@@ -76,8 +76,8 @@ intl-lens (Rust crate)
 
 | Binary | Purpose | Entry Point |
 |--------|---------|-------------|
-| `intl-lens` | LSP server for Zed | `main.rs` |
-| `intl-lens-cli` | Terminal auditing | `cli.rs` |
+| `intl-lens` | LSP server with public CLI subcommands | `main.rs` |
+| `intl-lens-cli` | Compatibility CLI alias | `cli.rs` |
 | `intl-lens-mcp` | AI agent integration | `mcp.rs` |
 
 ### 4.3 Key Dependencies
@@ -113,9 +113,10 @@ intl-lens (Rust crate)
 #### Commands
 
 ```bash
-intl-lens-cli audit [OPTIONS]
-intl-lens-cli check <files>...
-intl-lens-cli fix [OPTIONS]
+intl-lens audit [OPTIONS]
+intl-lens ci [OPTIONS]
+intl-lens check <files>...
+intl-lens fix [OPTIONS]
 ```
 
 #### Options
@@ -290,13 +291,13 @@ Priority order:
 
 ```bash
 # Quick audit
-$ intl-lens-cli audit
+$ intl-lens audit
 
 # Generate report for CI/CD
-$ intl-lens-cli audit --format json > i18n-report.json
+$ intl-lens audit --format json > i18n-report.json
 
 # Check specific files
-$ intl-lens-cli check src/components/*.tsx
+$ intl-lens check src/components/*.tsx
 ```
 
 ### 8.3 AI Agent Flow (MCP)
@@ -337,7 +338,7 @@ User: How do I fix the missing keys?
 - [x] Unused keys are reported
 - [x] Placeholder validation is included in audit reports
 - [x] Exit codes reflect issues (0=success, 1=issues found)
-- [ ] CI controls such as `--fail-on`, baselines, and ignore patterns are implemented
+- [x] CI controls such as `--fail-on`, baselines, and ignore patterns are implemented
 
 ### 9.3 MCP Server
 - [x] Implements stdio JSON-RPC transport for MCP clients
