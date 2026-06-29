@@ -120,11 +120,11 @@ Current tools:
 - `get_missing_translations`
 - `suggest_translation_fixes`
 - `translate_missing_keys`
+- `apply_translation_patch`
 - `validate_placeholders`
 
 Planned tools:
 
-- `apply_translation_patch`
 - `extract_hardcoded_strings`
 - `review_i18n_pr`
 - `get_translation_context`

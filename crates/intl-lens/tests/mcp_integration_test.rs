@@ -104,6 +104,7 @@ fn lists_all_mcp_tools_and_resources() {
             "get_missing_translations",
             "suggest_translation_fixes",
             "translate_missing_keys",
+            "apply_translation_patch",
             "validate_placeholders"
         ]
     );
@@ -245,6 +246,69 @@ fn mcp_translate_missing_keys_rejects_placeholder_mismatch() {
     assert_eq!(
         content["skipped"][0]["expected_placeholders"],
         json!(["name"])
+    );
+}
+
+#[test]
+fn mcp_apply_translation_patch_defaults_to_dry_run() {
+    let workspace = write_workspace();
+
+    let patch = call_mcp(
+        workspace.path(),
+        tool_call(
+            "apply_translation_patch",
+            json!({
+                "translations": [{
+                    "key": "checkout.submit",
+                    "locale": "vi",
+                    "value": "Gui don hang"
+                }]
+            }),
+        ),
+    );
+
+    let content = &patch["result"]["structuredContent"];
+    assert_eq!(content["dry_run"], true);
+    assert_eq!(content["applied"], 0);
+    assert_eq!(content["patches"][0]["key"], "checkout.submit");
+
+    let vi_json = fs::read_to_string(workspace.path().join("locales/vi.json")).expect("vi json");
+    assert!(!vi_json.contains("Gui don hang"));
+}
+
+#[test]
+fn mcp_apply_translation_patch_can_write_missing_translation() {
+    let workspace = write_workspace();
+
+    let patch = call_mcp(
+        workspace.path(),
+        tool_call(
+            "apply_translation_patch",
+            json!({
+                "dry_run": false,
+                "translations": [{
+                    "key": "checkout.submit",
+                    "locale": "vi",
+                    "value": "Gui don hang"
+                }]
+            }),
+        ),
+    );
+
+    let content = &patch["result"]["structuredContent"];
+    assert_eq!(content["dry_run"], false);
+    assert_eq!(content["applied"], 1);
+
+    let vi_json = fs::read_to_string(workspace.path().join("locales/vi.json")).expect("vi json");
+    assert!(vi_json.contains("Gui don hang"));
+
+    let audit = call_mcp(
+        workspace.path(),
+        tool_call("audit_i18n", json!({"include_suggestions": true})),
+    );
+    assert_eq!(
+        audit["result"]["structuredContent"]["summary"]["missing_translations"],
+        1
     );
 }
 

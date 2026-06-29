@@ -72,6 +72,14 @@ struct TranslateMissingKeysParams {
     translations: Vec<TranslationPatchInput>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct ApplyTranslationPatchParams {
+    workspace: Option<PathBuf>,
+    dry_run: Option<bool>,
+    translations: Vec<TranslationPatchInput>,
+}
+
 #[derive(Debug, Deserialize)]
 struct TranslationPatchInput {
     key: String,
@@ -205,6 +213,10 @@ impl McpServer {
             "translate_missing_keys" => {
                 let arguments: TranslateMissingKeysParams = serde_json::from_value(arguments)?;
                 self.translate_missing_keys(arguments)?
+            }
+            "apply_translation_patch" => {
+                let arguments: ApplyTranslationPatchParams = serde_json::from_value(arguments)?;
+                self.apply_translation_patch(arguments)?
             }
             "validate_placeholders" => {
                 let arguments: ValidatePlaceholdersParams = serde_json::from_value(arguments)?;
@@ -426,80 +438,49 @@ impl McpServer {
         }
 
         let workspace = self.resolve_workspace(params.workspace);
-        let report = self.build_report(&workspace)?;
-        let mut patches = Vec::new();
-        let mut skipped = Vec::new();
-
-        for translation in params.translations {
-            if translation.key.trim().is_empty() || translation.locale.trim().is_empty() {
-                skipped.push(json!({
-                    "key": translation.key,
-                    "locale": translation.locale,
-                    "reason": "key and locale are required"
-                }));
-                continue;
-            }
-
-            let Some(missing) = report.missing.iter().find(|item| {
-                item.key == translation.key && item.missing_in.contains(&translation.locale)
-            }) else {
-                skipped.push(json!({
-                    "key": translation.key,
-                    "locale": translation.locale,
-                    "reason": "translation is not currently missing"
-                }));
-                continue;
-            };
-
-            let expected_placeholders = extract_placeholders(&missing.source_value);
-            let actual_placeholders = extract_placeholders(&translation.value);
-            if expected_placeholders != actual_placeholders {
-                skipped.push(json!({
-                    "key": translation.key,
-                    "locale": translation.locale,
-                    "reason": "placeholder mismatch",
-                    "expected_placeholders": expected_placeholders,
-                    "actual_placeholders": actual_placeholders
-                }));
-                continue;
-            }
-
-            let Some(file) = find_locale_file(&workspace, &translation.locale) else {
-                skipped.push(json!({
-                    "key": translation.key,
-                    "locale": translation.locale,
-                    "reason": "target locale file was not found"
-                }));
-                continue;
-            };
-
-            let before = std::fs::read_to_string(&file)
-                .with_context(|| format!("Failed to read locale file {}", file.display()))?;
-            let Some(after) =
-                add_translation_to_content(&file, &before, &translation.key, &translation.value)?
-            else {
-                skipped.push(json!({
-                    "key": translation.key,
-                    "locale": translation.locale,
-                    "file": file,
-                    "reason": "target file format is not supported for translation patches"
-                }));
-                continue;
-            };
-
-            patches.push(json!({
-                "key": translation.key,
-                "locale": translation.locale,
-                "file": file,
-                "unified_diff": unified_diff(&workspace, &file, &before, &after)
-            }));
-        }
+        let patch_plan = self.plan_translation_patches(&workspace, params.translations)?;
 
         Ok(json!({
             "workspace": workspace,
             "dry_run": true,
-            "patches": patches,
-            "skipped": skipped
+            "patches": patch_plan.patches.iter().map(|patch| {
+                json!({
+                    "key": patch.key,
+                    "locale": patch.locale,
+                    "file": patch.file,
+                    "unified_diff": patch.unified_diff
+                })
+            }).collect::<Vec<_>>(),
+            "skipped": patch_plan.skipped
+        }))
+    }
+
+    fn apply_translation_patch(&self, params: ApplyTranslationPatchParams) -> Result<Value> {
+        let dry_run = params.dry_run.unwrap_or(true);
+        let workspace = self.resolve_workspace(params.workspace);
+        let patch_plan = self.plan_translation_patches(&workspace, params.translations)?;
+
+        if !dry_run {
+            for patch in &patch_plan.patches {
+                std::fs::write(&patch.file, &patch.after).with_context(|| {
+                    format!("Failed to write locale file {}", patch.file.display())
+                })?;
+            }
+        }
+
+        Ok(json!({
+            "workspace": workspace,
+            "dry_run": dry_run,
+            "applied": if dry_run { 0 } else { patch_plan.patches.len() },
+            "patches": patch_plan.patches.iter().map(|patch| {
+                json!({
+                    "key": patch.key,
+                    "locale": patch.locale,
+                    "file": patch.file,
+                    "unified_diff": patch.unified_diff
+                })
+            }).collect::<Vec<_>>(),
+            "skipped": patch_plan.skipped
         }))
     }
 
@@ -543,6 +524,98 @@ impl McpServer {
         store.scan_and_load(&config.locale_paths);
         (config, store)
     }
+
+    fn plan_translation_patches(
+        &self,
+        workspace: &Path,
+        translations: Vec<TranslationPatchInput>,
+    ) -> Result<TranslationPatchPlan> {
+        let report = self.build_report(workspace)?;
+        let mut patches = Vec::new();
+        let mut skipped = Vec::new();
+
+        for translation in translations {
+            if translation.key.trim().is_empty() || translation.locale.trim().is_empty() {
+                skipped.push(json!({
+                    "key": translation.key,
+                    "locale": translation.locale,
+                    "reason": "key and locale are required"
+                }));
+                continue;
+            }
+
+            let Some(missing) = report.missing.iter().find(|item| {
+                item.key == translation.key && item.missing_in.contains(&translation.locale)
+            }) else {
+                skipped.push(json!({
+                    "key": translation.key,
+                    "locale": translation.locale,
+                    "reason": "translation is not currently missing"
+                }));
+                continue;
+            };
+
+            let expected_placeholders = extract_placeholders(&missing.source_value);
+            let actual_placeholders = extract_placeholders(&translation.value);
+            if expected_placeholders != actual_placeholders {
+                skipped.push(json!({
+                    "key": translation.key,
+                    "locale": translation.locale,
+                    "reason": "placeholder mismatch",
+                    "expected_placeholders": expected_placeholders,
+                    "actual_placeholders": actual_placeholders
+                }));
+                continue;
+            }
+
+            let Some(file) = find_locale_file(workspace, &translation.locale) else {
+                skipped.push(json!({
+                    "key": translation.key,
+                    "locale": translation.locale,
+                    "reason": "target locale file was not found"
+                }));
+                continue;
+            };
+
+            let before = std::fs::read_to_string(&file)
+                .with_context(|| format!("Failed to read locale file {}", file.display()))?;
+            let Some(after) =
+                add_translation_to_content(&file, &before, &translation.key, &translation.value)?
+            else {
+                skipped.push(json!({
+                    "key": translation.key,
+                    "locale": translation.locale,
+                    "file": file,
+                    "reason": "target file format is not supported for translation patches"
+                }));
+                continue;
+            };
+
+            let diff = unified_diff(workspace, &file, &before, &after);
+            patches.push(PlannedTranslationPatch {
+                key: translation.key,
+                locale: translation.locale,
+                file,
+                after,
+                unified_diff: diff,
+            });
+        }
+
+        Ok(TranslationPatchPlan { patches, skipped })
+    }
+}
+
+struct TranslationPatchPlan {
+    patches: Vec<PlannedTranslationPatch>,
+    skipped: Vec<Value>,
+}
+
+struct PlannedTranslationPatch {
+    key: String,
+    locale: String,
+    file: PathBuf,
+    after: String,
+    unified_diff: String,
 }
 
 fn strip_missing_suggestions(items: &[MissingTranslation]) -> Vec<Value> {
@@ -822,6 +895,30 @@ fn tool_definitions() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
+            name: "apply_translation_patch",
+            description: "Apply or dry-run caller-provided translations for missing keys.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workspace": { "type": "string" },
+                    "dry_run": { "type": "boolean", "default": true },
+                    "translations": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["key", "locale", "value"],
+                            "properties": {
+                                "key": { "type": "string" },
+                                "locale": { "type": "string" },
+                                "value": { "type": "string" }
+                            }
+                        },
+                        "default": []
+                    }
+                }
+            }),
+        },
+        ToolDefinition {
             name: "validate_placeholders",
             description: "Check placeholder consistency for a specific translation key across locales.",
             input_schema: json!({
@@ -919,7 +1016,7 @@ mod tests {
     #[test]
     fn serializes_tool_definitions() {
         let tools = tool_definitions();
-        assert_eq!(tools.len(), 5);
+        assert_eq!(tools.len(), 6);
         assert_eq!(tools[0].name, "audit_i18n");
     }
 

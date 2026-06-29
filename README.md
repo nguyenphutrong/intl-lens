@@ -195,6 +195,7 @@ Available tools:
 | `get_missing_translations` | Filter missing keys by locale and optionally include source usage context |
 | `suggest_translation_fixes` | Return file targets and source text for a missing key |
 | `translate_missing_keys` | Return dry-run diffs for caller-provided translations of missing keys |
+| `apply_translation_patch` | Apply or dry-run caller-provided translations; defaults to dry-run |
 | `validate_placeholders` | Check placeholder consistency for one key |
 
 Available resources:
