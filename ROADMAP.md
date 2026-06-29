@@ -27,7 +27,7 @@ Workspace version: `0.1.6`
 | CLI fix | Stub | `fix --dry-run` exists but only prints a placeholder message |
 | MCP server | Usable | Tools and resources are implemented over stdio JSON-RPC |
 | Audit model | Usable | Missing translations, unused keys, placeholder issues, fix suggestions |
-| Config | Usable | `.i18n-ally.json`, `i18n-ally.config.json`, `.zed/i18n.json` |
+| Config | Usable | `.intl-lens.json`, `intl-lens.config.json`, `.zed/i18n.json` |
 | File formats | Partial | JSON, YAML, PHP, ARB |
 | Key detection | Regex-based | Broad framework coverage, but dynamic keys need better classification |
 

@@ -59,8 +59,8 @@ impl Default for I18nConfig {
 impl I18nConfig {
     pub fn load_from_workspace(root: &Path) -> Self {
         let config_paths = [
-            root.join(".i18n-ally.json"),
-            root.join("i18n-ally.config.json"),
+            root.join(".intl-lens.json"),
+            root.join("intl-lens.config.json"),
             root.join(".zed/i18n.json"),
         ];
 
@@ -389,16 +389,58 @@ mod tests {
     }
 
     #[test]
-    fn reads_i18n_ally_locales_paths_alias() {
+    fn reads_locales_paths_alias() {
         let config = serde_json::from_str::<I18nConfig>(
             r#"{"localesPaths":["src/lang","**/*/i18n/locales"]}"#,
         )
-        .expect("parse i18n ally config");
+        .expect("parse config");
 
         assert_eq!(
             config.locale_paths,
             vec!["src/lang".to_string(), "**/*/i18n/locales".to_string()]
         );
+    }
+
+    #[test]
+    fn loads_intl_lens_config_before_zed_config() {
+        let root = test_workspace("intl-lens-config-priority");
+        fs::create_dir_all(root.join(".zed")).expect("create zed dir");
+        fs::write(
+            root.join(".intl-lens.json"),
+            r#"{"localePaths":["intl-locales"],"sourceLocale":"vi"}"#,
+        )
+        .expect("write intl lens config");
+        fs::write(
+            root.join(".zed/i18n.json"),
+            r#"{"localePaths":["zed-locales"],"sourceLocale":"en"}"#,
+        )
+        .expect("write zed config");
+
+        let config = I18nConfig::load_from_workspace(&root);
+
+        assert_eq!(config.locale_paths, vec!["intl-locales".to_string()]);
+        assert_eq!(config.source_locale, "vi");
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn ignores_legacy_config_files() {
+        let root = test_workspace("legacy-config-ignored");
+        fs::create_dir_all(&root).expect("create root");
+        let legacy_file = [".i18n", "-ally.json"].concat();
+        fs::write(
+            root.join(legacy_file),
+            r#"{"localePaths":["legacy-locales"],"sourceLocale":"vi"}"#,
+        )
+        .expect("write legacy config");
+
+        let config = I18nConfig::load_from_workspace(&root);
+
+        assert_ne!(config.locale_paths, vec!["legacy-locales".to_string()]);
+        assert_eq!(config.source_locale, "en");
+
+        fs::remove_dir_all(root).ok();
     }
 
     #[test]

@@ -194,8 +194,8 @@ Run intl-lens audit, list keys missing in Vietnamese, suggest fixes, then valida
 
 Intl Lens looks for configuration in this order:
 
-1. `.i18n-ally.json`
-2. `i18n-ally.config.json`
+1. `.intl-lens.json`
+2. `intl-lens.config.json`
 3. `.zed/i18n.json`
 
 Example:
