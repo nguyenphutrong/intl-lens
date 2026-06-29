@@ -122,12 +122,12 @@ Current tools:
 - `translate_missing_keys`
 - `apply_translation_patch`
 - `validate_placeholders`
+- `get_translation_context`
 
 Planned tools:
 
 - `extract_hardcoded_strings`
 - `review_i18n_pr`
-- `get_translation_context`
 
 Safety rules:
 

@@ -105,7 +105,8 @@ fn lists_all_mcp_tools_and_resources() {
             "suggest_translation_fixes",
             "translate_missing_keys",
             "apply_translation_patch",
-            "validate_placeholders"
+            "validate_placeholders",
+            "get_translation_context"
         ]
     );
 
@@ -184,6 +185,32 @@ fn mcp_tools_return_structured_i18n_data() {
         .expect("issues")
         .iter()
         .any(|issue| issue["locale_values"].get("vi").is_some()));
+
+    let context = call_mcp(
+        workspace.path(),
+        tool_call(
+            "get_translation_context",
+            json!({"key":"checkout.submit","include_usage":true}),
+        ),
+    );
+    let context_content = &context["result"]["structuredContent"];
+    assert_eq!(context_content["key"], "checkout.submit");
+    assert_eq!(context_content["source_locale"], "en");
+    assert_eq!(context_content["source_value"], "Submit order");
+    assert_eq!(context_content["missing_in"], json!(["vi"]));
+    assert!(context_content["used_in"]
+        .as_array()
+        .expect("usage")
+        .iter()
+        .any(|usage| usage["file"]
+            .as_str()
+            .expect("usage file")
+            .ends_with("src/App.tsx")));
+    assert!(context_content["files_to_edit"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .any(|file| file.as_str().expect("file").ends_with("locales/vi.json")));
 }
 
 #[test]

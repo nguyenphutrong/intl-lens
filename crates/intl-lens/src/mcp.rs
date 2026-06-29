@@ -94,6 +94,14 @@ struct ValidatePlaceholdersParams {
     key: String,
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct TranslationContextParams {
+    workspace: Option<PathBuf>,
+    key: String,
+    include_usage: bool,
+}
+
 #[derive(Debug, Serialize)]
 struct ServerInfo {
     name: &'static str,
@@ -221,6 +229,10 @@ impl McpServer {
             "validate_placeholders" => {
                 let arguments: ValidatePlaceholdersParams = serde_json::from_value(arguments)?;
                 self.validate_placeholders(arguments)?
+            }
+            "get_translation_context" => {
+                let arguments: TranslationContextParams = serde_json::from_value(arguments)?;
+                self.get_translation_context(arguments)?
             }
             name => return Err(anyhow!("Unknown tool: {name}")),
         };
@@ -504,6 +516,69 @@ impl McpServer {
             "key": params.key,
             "valid": valid,
             "issues": issues
+        }))
+    }
+
+    fn get_translation_context(&self, params: TranslationContextParams) -> Result<Value> {
+        if params.key.trim().is_empty() {
+            return Err(anyhow!("'key' is required"));
+        }
+
+        let workspace = self.resolve_workspace(params.workspace);
+        let (config, store) = self.load_store(&workspace);
+        let mut audit = AuditResult::new(workspace.clone(), config.clone(), store);
+        audit.scan_codebase();
+        let report = audit.generate_report();
+
+        let all_translations = audit.store.get_all_translations(&params.key);
+        let mut translations: Vec<Value> = all_translations
+            .into_iter()
+            .map(|(locale, entry)| {
+                json!({
+                    "locale": locale,
+                    "value": entry.value,
+                    "file": entry.file_path
+                })
+            })
+            .collect();
+        translations.sort_by(|left, right| {
+            left["locale"]
+                .as_str()
+                .unwrap_or_default()
+                .cmp(right["locale"].as_str().unwrap_or_default())
+        });
+
+        let missing_in = report
+            .missing
+            .iter()
+            .find(|item| item.key == params.key)
+            .map(|item| item.missing_in.clone())
+            .unwrap_or_default();
+        let used_in = if params.include_usage {
+            report
+                .missing
+                .iter()
+                .find(|item| item.key == params.key)
+                .map(|item| item.used_in.clone())
+                .or_else(|| audit.used_keys.get(&params.key).cloned())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let files_to_edit: Vec<PathBuf> = missing_in
+            .iter()
+            .filter_map(|locale| find_locale_file(&workspace, locale))
+            .collect();
+
+        Ok(json!({
+            "workspace": workspace,
+            "key": params.key,
+            "source_locale": config.source_locale,
+            "source_value": audit.store.get_translation(&params.key, &config.source_locale),
+            "translations": translations,
+            "missing_in": missing_in,
+            "used_in": used_in,
+            "files_to_edit": files_to_edit
         }))
     }
 
@@ -930,6 +1005,19 @@ fn tool_definitions() -> Vec<ToolDefinition> {
                 }
             }),
         },
+        ToolDefinition {
+            name: "get_translation_context",
+            description: "Return translations, missing locales, usage context, and target files for one key.",
+            input_schema: json!({
+                "type": "object",
+                "required": ["key"],
+                "properties": {
+                    "workspace": { "type": "string" },
+                    "key": { "type": "string" },
+                    "include_usage": { "type": "boolean", "default": false }
+                }
+            }),
+        },
     ]
 }
 
@@ -1016,7 +1104,7 @@ mod tests {
     #[test]
     fn serializes_tool_definitions() {
         let tools = tool_definitions();
-        assert_eq!(tools.len(), 6);
+        assert_eq!(tools.len(), 7);
         assert_eq!(tools[0].name, "audit_i18n");
     }
 
