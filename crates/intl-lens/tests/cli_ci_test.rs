@@ -323,3 +323,58 @@ fn fix_add_missing_defaults_to_source_text() {
     let json: Value = serde_json::from_str(&content).expect("updated json");
     assert_eq!(json["checkout"]["submit"], "Submit");
 }
+
+#[test]
+fn fix_add_missing_writes_yaml_locale_files() {
+    let workspace = write_workspace(&[
+        ("locales/en.yaml", "checkout:\n  submit: Submit\n"),
+        ("locales/vi.yaml", "{}\n"),
+        (
+            "src/App.tsx",
+            r#"export const App = () => t("checkout.submit");"#,
+        ),
+    ]);
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--add-missing")
+        .arg("--placeholder")
+        .arg("_TODO_");
+    command.assert().success();
+
+    let content = fs::read_to_string(workspace.path().join("locales/vi.yaml")).expect("vi yaml");
+    let yaml: serde_yaml::Value = serde_yaml::from_str(&content).expect("updated yaml");
+    assert_eq!(yaml["checkout"]["submit"], "_TODO_");
+}
+
+#[test]
+fn fix_add_missing_writes_arb_locale_files() {
+    let workspace = write_workspace(&[
+        (
+            "locales/app_en.arb",
+            r#"{"@@locale":"en","checkoutSubmit":"Submit"}"#,
+        ),
+        ("locales/app_vi.arb", r#"{"@@locale":"vi"}"#),
+        (
+            "src/App.tsx",
+            r#"export const App = () => t("checkoutSubmit");"#,
+        ),
+    ]);
+
+    let mut command = intl_lens();
+    command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("fix")
+        .arg("--add-missing")
+        .arg("--placeholder")
+        .arg("_TODO_");
+    command.assert().success();
+
+    let content = fs::read_to_string(workspace.path().join("locales/app_vi.arb")).expect("vi arb");
+    let json: Value = serde_json::from_str(&content).expect("updated arb");
+    assert_eq!(json["checkoutSubmit"], "_TODO_");
+}

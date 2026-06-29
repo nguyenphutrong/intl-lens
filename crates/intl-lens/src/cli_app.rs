@@ -739,18 +739,25 @@ fn apply_missing_translations(
                 continue;
             };
 
-            if file.extension().and_then(|extension| extension.to_str()) != Some("json") {
-                skipped += 1;
-                continue;
-            }
-
             let value = placeholder.unwrap_or(&item.source_value);
-            add_json_translation(&file, &item.key, value)?;
-            added += 1;
+            if add_translation_to_file(&file, &item.key, value)? {
+                added += 1;
+            } else {
+                skipped += 1;
+            }
         }
     }
 
     Ok(MissingWriteSummary { added, skipped })
+}
+
+fn add_translation_to_file(path: &Path, key: &str, value: &str) -> anyhow::Result<bool> {
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some("json") => add_json_translation(path, key, value).map(|_| true),
+        Some("yaml") | Some("yml") => add_yaml_translation(path, key, value).map(|_| true),
+        Some("arb") => add_arb_translation(path, key, value).map(|_| true),
+        _ => Ok(false),
+    }
 }
 
 fn add_json_translation(path: &Path, key: &str, value: &str) -> anyhow::Result<()> {
@@ -760,6 +767,38 @@ fn add_json_translation(path: &Path, key: &str, value: &str) -> anyhow::Result<(
         .with_context(|| format!("Failed to parse JSON locale file {}", path.display()))?;
 
     insert_json_key(&mut json, key, value);
+
+    let mut output = serde_json::to_string_pretty(&json)?;
+    output.push('\n');
+    std::fs::write(path, output)
+        .with_context(|| format!("Failed to write locale file {}", path.display()))?;
+    Ok(())
+}
+
+fn add_yaml_translation(path: &Path, key: &str, value: &str) -> anyhow::Result<()> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read locale file {}", path.display()))?;
+    let mut yaml: serde_yaml::Value = serde_yaml::from_str(&content)
+        .with_context(|| format!("Failed to parse YAML locale file {}", path.display()))?;
+
+    insert_yaml_key(&mut yaml, key, value);
+
+    let output = serde_yaml::to_string(&yaml)?;
+    std::fs::write(path, output)
+        .with_context(|| format!("Failed to write locale file {}", path.display()))?;
+    Ok(())
+}
+
+fn add_arb_translation(path: &Path, key: &str, value: &str) -> anyhow::Result<()> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read locale file {}", path.display()))?;
+    let mut json: serde_json::Value = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse ARB locale file {}", path.display()))?;
+
+    if !json.is_object() {
+        json = serde_json::json!({});
+    }
+    json[key] = serde_json::Value::String(value.to_string());
 
     let mut output = serde_json::to_string_pretty(&json)?;
     output.push('\n');
@@ -785,6 +824,28 @@ fn insert_json_key(json: &mut serde_json::Value, key: &str, value: &str) {
 
     if let Some(last) = parts.last() {
         current[*last] = serde_json::Value::String(value.to_string());
+    }
+}
+
+fn insert_yaml_key(yaml: &mut serde_yaml::Value, key: &str, value: &str) {
+    if !yaml.is_mapping() {
+        *yaml = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
+    }
+
+    let parts: Vec<&str> = key.split('.').collect();
+    let mut current = yaml;
+
+    for part in &parts[..parts.len().saturating_sub(1)] {
+        let key = serde_yaml::Value::String((*part).to_string());
+        if !current.get(&key).is_some_and(serde_yaml::Value::is_mapping) {
+            current[key.clone()] = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
+        }
+        current = &mut current[key];
+    }
+
+    if let Some(last) = parts.last() {
+        current[serde_yaml::Value::String((*last).to_string())] =
+            serde_yaml::Value::String(value.to_string());
     }
 }
 
@@ -894,6 +955,23 @@ fn find_locale_file(workspace: &Path, config: &I18nConfig, locale: &str) -> Opti
             let candidate = base.join(format!("{locale}.{extension}"));
             if candidate.exists() {
                 return Some(candidate);
+            }
+        }
+
+        if let Ok(entries) = std::fs::read_dir(&base) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|extension| extension.to_str()) != Some("arb") {
+                    continue;
+                }
+
+                let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                    continue;
+                };
+
+                if stem == locale || stem.ends_with(&format!("_{locale}")) {
+                    return Some(path);
+                }
             }
         }
     }
