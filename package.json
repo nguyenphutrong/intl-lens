@@ -1,0 +1,19 @@
+{
+  "name": "i18nlens",
+  "version": "0.1.6",
+  "description": "I18n intelligence layer for codebases",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nguyenphutrong/i18nlens.git"
+  },
+  "bin": {
+    "i18nlens": "bin/i18nlens.js"
+  },
+  "files": [
+    "bin/i18nlens.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

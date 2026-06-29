@@ -204,7 +204,7 @@ impl McpServer {
         Ok(json!({
             "protocolVersion": "2024-11-05",
             "serverInfo": ServerInfo {
-                name: "intl-lens-mcp",
+                name: "i18nlens-mcp",
                 version: env!("CARGO_PKG_VERSION"),
             },
             "capabilities": {
@@ -275,19 +275,19 @@ impl McpServer {
     fn handle_resources_list(&self) -> Result<Value> {
         let resources = vec![
             ResourceDefinition {
-                uri: "intl-lens://config".to_string(),
-                name: "Intl Lens Config".to_string(),
+                uri: "i18nlens://config".to_string(),
+                name: "I18n Lens Config".to_string(),
                 description: "Resolved i18n configuration for the current workspace".to_string(),
                 mime_type: "application/json".to_string(),
             },
             ResourceDefinition {
-                uri: "intl-lens://audit/latest".to_string(),
+                uri: "i18nlens://audit/latest".to_string(),
                 name: "Latest Audit Report".to_string(),
                 description: "Fresh audit report generated from the current workspace".to_string(),
                 mime_type: "application/json".to_string(),
             },
             ResourceDefinition {
-                uri: "intl-lens://translations/index".to_string(),
+                uri: "i18nlens://translations/index".to_string(),
                 name: "Translation Inventory".to_string(),
                 description: "Loaded locales and translation key count".to_string(),
                 mime_type: "application/json".to_string(),
@@ -305,7 +305,7 @@ impl McpServer {
             .ok_or_else(|| anyhow!("Missing resource uri"))?;
 
         let contents = match uri {
-            "intl-lens://config" => {
+            "i18nlens://config" | "intl-lens://config" => {
                 let config = I18nConfig::load_from_workspace(&self.workspace_root);
                 vec![ResourceContents {
                     uri: uri.to_string(),
@@ -313,7 +313,7 @@ impl McpServer {
                     text: serde_json::to_string_pretty(&config)?,
                 }]
             }
-            "intl-lens://audit/latest" => {
+            "i18nlens://audit/latest" | "intl-lens://audit/latest" => {
                 let report = self.build_report(&self.workspace_root)?;
                 vec![ResourceContents {
                     uri: uri.to_string(),
@@ -321,7 +321,7 @@ impl McpServer {
                     text: serde_json::to_string_pretty(&report)?,
                 }]
             }
-            "intl-lens://translations/index" => {
+            "i18nlens://translations/index" | "intl-lens://translations/index" => {
                 let (_, store) = self.load_store(&self.workspace_root);
                 let payload = json!({
                     "workspace": self.workspace_root,
@@ -1055,9 +1055,9 @@ fn review_findings(report: &AuditReport, fail_on: &[String]) -> Vec<Value> {
 fn review_markdown(report: &AuditReport, blocking: bool, findings: &[Value]) -> String {
     let mut markdown = String::new();
     markdown.push_str(if blocking {
-        "## Intl Lens Review: Action Required\n\n"
+        "## I18n Lens Review: Action Required\n\n"
     } else {
-        "## Intl Lens Review: Passed\n\n"
+        "## I18n Lens Review: Passed\n\n"
     });
     markdown.push_str(&format!(
         "- Missing translations: {}\n",

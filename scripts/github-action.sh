@@ -2,8 +2,8 @@
 set -euo pipefail
 
 version="${INPUT_VERSION:-latest}"
-repo="${GITHUB_ACTION_REPOSITORY:-nguyenphutrong/intl-lens}"
-install_dir="${RUNNER_TEMP:-/tmp}/intl-lens"
+repo="${GITHUB_ACTION_REPOSITORY:-nguyenphutrong/i18nlens}"
+install_dir="${RUNNER_TEMP:-/tmp}/i18nlens"
 mkdir -p "$install_dir"
 
 case "$(uname -s)" in
@@ -20,21 +20,30 @@ case "$(uname -m)" in
 esac
 
 if [[ "$os" == "pc-windows-msvc" ]]; then
-  asset="intl-lens-${arch}-${os}.zip"
-  binary="$install_dir/intl-lens.exe"
+  asset="i18nlens-${arch}-${os}.zip"
+  legacy_asset="intl-lens-${arch}-${os}.zip"
+  binary="$install_dir/i18nlens.exe"
 else
-  asset="intl-lens-${arch}-${os}.tar.gz"
-  binary="$install_dir/intl-lens"
+  asset="i18nlens-${arch}-${os}.tar.gz"
+  legacy_asset="intl-lens-${arch}-${os}.tar.gz"
+  binary="$install_dir/i18nlens"
 fi
 
 if [[ "$version" == "latest" ]]; then
   url="https://github.com/${repo}/releases/latest/download/${asset}"
+  legacy_url="https://github.com/${repo}/releases/latest/download/${legacy_asset}"
 else
   url="https://github.com/${repo}/releases/download/${version}/${asset}"
+  legacy_url="https://github.com/${repo}/releases/download/${version}/${legacy_asset}"
 fi
 
-echo "Installing intl-lens from ${url}"
-curl --fail --location --silent --show-error "$url" --output "$install_dir/$asset"
+echo "Installing i18nlens from ${url}"
+if ! curl --fail --location --silent --show-error "$url" --output "$install_dir/$asset"; then
+  echo "Falling back to legacy intl-lens asset ${legacy_url}"
+  asset="$legacy_asset"
+  binary="${binary/i18nlens/intl-lens}"
+  curl --fail --location --silent --show-error "$legacy_url" --output "$install_dir/$asset"
+fi
 
 if [[ "$asset" == *.zip ]]; then
   unzip -o -q "$install_dir/$asset" -d "$install_dir"

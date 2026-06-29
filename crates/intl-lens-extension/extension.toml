@@ -1,17 +1,17 @@
-id = "intl-lens"
-name = "Intl Lens"
+id = "i18nlens"
+name = "I18n Lens"
 version = "0.1.6"
 schema_version = 1
 license = "MIT"
 authors = ["Trong Nguyen"]
-description = "Intl Lens editor integration for Zed - inline translations, hover info, and diagnostics"
-repository = "https://github.com/nguyenphutrong/intl-lens"
+description = "I18n Lens editor integration for Zed - inline translations, hover info, and diagnostics"
+repository = "https://github.com/nguyenphutrong/i18nlens"
 
-[language_servers.intl-lens]
-name = "Intl Lens Language Server"
+[language_servers.i18nlens]
+name = "I18n Lens Language Server"
 languages = ["TypeScript", "TSX", "JavaScript", "JSX", "HTML", "Angular", "PHP", "Blade", "Vue.js", "Svelte"]
 
-[language_servers.intl-lens.language_ids]
+[language_servers.i18nlens.language_ids]
 "TypeScript" = "typescript"
 "TSX" = "typescriptreact"
 "JavaScript" = "javascript"

@@ -1,9 +1,9 @@
-name: Intl Lens
-description: Audit translation health with intl-lens in CI.
+name: I18n Lens
+description: Audit translation health with i18nlens in CI.
 
 inputs:
   version:
-    description: Intl Lens release tag to install, or latest.
+    description: I18n Lens release tag to install, or latest.
     required: false
     default: latest
   workspace:
@@ -39,14 +39,14 @@ inputs:
     required: false
     default: ""
   extra-args:
-    description: Additional arguments passed to intl-lens ci.
+    description: Additional arguments passed to i18nlens ci.
     required: false
     default: ""
 
 runs:
   using: composite
   steps:
-    - name: Install and run Intl Lens
+    - name: Install and run I18n Lens
       shell: bash
       run: "$GITHUB_ACTION_PATH/scripts/github-action.sh"
       env:

@@ -1,8 +1,8 @@
-# Intl Lens Roadmap
+# I18n Lens Roadmap
 
 ## Positioning
 
-Intl Lens is an i18n intelligence layer for codebases.
+I18n Lens is an i18n intelligence layer for codebases.
 
 The product should work across four surfaces:
 
@@ -21,13 +21,13 @@ Workspace version: `0.1.6`
 
 | Area | Status | Notes |
 |------|--------|-------|
-| Rust workspace | Done | `intl-lens` core crate plus Zed extension crate |
+| Rust workspace | Done | `i18nlens` core crate plus Zed extension crate |
 | LSP server | Done | Inline hints, hover, diagnostics, autocomplete, go to definition, reload |
 | CLI audit | Usable | `audit`, `check`, JSON, Markdown, terminal output, CI exit codes |
 | CLI fix | Partial | `fix --dry-run` shows reviewable suggestions; `--add-missing` writes JSON, YAML, PHP, and ARB locale files |
 | MCP server | Usable | Tools and resources are implemented over stdio JSON-RPC |
 | Audit model | Usable | Missing translations, unused keys, placeholder issues, fix suggestions |
-| Config | Usable | `.intl-lens.json`, `intl-lens.config.json`, `.zed/i18n.json` |
+| Config | Usable | `.i18nlens.json`, `i18nlens.config.json`, `.zed/i18n.json` |
 | File formats | Partial | JSON, YAML, PHP, ARB |
 | Key detection | Regex-based | Broad framework coverage, but dynamic keys need better classification |
 
@@ -43,11 +43,11 @@ Workspace version: `0.1.6`
 
 ### P0: Make CLI Audit Production-Ready for CI
 
-Goal: teams can add Intl Lens to a pull request workflow without custom glue code.
+Goal: teams can add I18n Lens to a pull request workflow without custom glue code.
 
 Implemented in the CLI:
 
-- `intl-lens audit` and `intl-lens ci`.
+- `i18nlens audit` and `i18nlens ci`.
 - `--fail-on missing,unused,placeholder`.
 - `--ignore-key-pattern`.
 - `--ignore-file`.
@@ -63,9 +63,9 @@ Remaining work:
 Target examples:
 
 ```bash
-intl-lens audit --format json
-intl-lens audit --format markdown --output i18n-report.md
-intl-lens ci --fail-on missing,placeholder --max-unused 20
+i18nlens audit --format json
+i18nlens audit --format markdown --output i18n-report.md
+i18nlens ci --fail-on missing,placeholder --max-unused 20
 ```
 
 Success criteria:
@@ -92,10 +92,10 @@ Planned work:
 Target examples:
 
 ```bash
-intl-lens fix --dry-run
-intl-lens fix --add-missing --placeholder "_TODO_"
-intl-lens fix --remove-unused --interactive
-intl-lens fix --sort-keys
+i18nlens fix --dry-run
+i18nlens fix --add-missing --placeholder "_TODO_"
+i18nlens fix --remove-unused --interactive
+i18nlens fix --sort-keys
 ```
 
 Fix behavior:
@@ -136,7 +136,7 @@ Safety rules:
 Example workflow:
 
 ```text
-Run intl-lens audit, translate missing Vietnamese keys from English, return a patch, then validate placeholders.
+Run i18nlens audit, translate missing Vietnamese keys from English, return a patch, then validate placeholders.
 ```
 
 Success criteria:
@@ -152,7 +152,7 @@ Goal: move untranslated user-facing strings into translation files.
 Initial command:
 
 ```bash
-intl-lens extract src/components/Checkout.tsx --locale en --namespace checkout
+i18nlens extract src/components/Checkout.tsx --locale en --namespace checkout
 ```
 
 Example transformation:
@@ -218,8 +218,8 @@ Planned config shape:
 Planned commands:
 
 ```bash
-intl-lens audit --project admin
-intl-lens audit --all-projects
+i18nlens audit --project admin
+i18nlens audit --all-projects
 ```
 
 Success criteria:
@@ -307,8 +307,8 @@ Goal: fill missing translations with reviewable provider output.
 Planned command shape:
 
 ```bash
-intl-lens translate --provider openai --from en --to vi,ja
-intl-lens translate --provider deepl --missing-only
+i18nlens translate --provider openai --from en --to vi,ja
+i18nlens translate --provider deepl --missing-only
 ```
 
 Candidate providers:
@@ -338,12 +338,12 @@ Glossary example:
 
 ### P3: GitHub Action and PR Reviewer
 
-Goal: make Intl Lens easy to adopt and demo in pull requests.
+Goal: make I18n Lens easy to adopt and demo in pull requests.
 
 Target Action:
 
 ```yaml
-- uses: nguyenphutrong/intl-lens-action@v1
+- uses: nguyenphutrong/i18nlens@v1
   with:
     fail-on: missing,placeholder
     comment-pr: true

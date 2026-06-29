@@ -6,7 +6,11 @@ use predicates::str::contains;
 use serde_json::Value;
 use tempfile::TempDir;
 
-fn intl_lens() -> Command {
+fn i18nlens() -> Command {
+    Command::cargo_bin("i18nlens").expect("i18nlens binary")
+}
+
+fn legacy_i18nlens() -> Command {
     Command::cargo_bin("intl-lens").expect("intl-lens binary")
 }
 
@@ -20,7 +24,7 @@ fn write_workspace(files: &[(&str, &str)]) -> TempDir {
     fs::create_dir_all(dir.path().join("src/generated")).expect("src dir");
     fs::create_dir_all(dir.path().join(".zed")).expect("zed dir");
     fs::write(
-        dir.path().join(".zed/i18n.json"),
+        dir.path().join(".i18nlens.json"),
         r#"{"localePaths":["locales"],"sourceLocale":"en"}"#,
     )
     .expect("config");
@@ -37,7 +41,7 @@ fn write_workspace(files: &[(&str, &str)]) -> TempDir {
 }
 
 fn run_json(workspace: &Path, args: &[&str]) -> assert_cmd::assert::Assert {
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace)
@@ -48,14 +52,25 @@ fn run_json(workspace: &Path, args: &[&str]) -> assert_cmd::assert::Assert {
 }
 
 #[test]
-fn intl_lens_help_shows_cli_commands() {
-    intl_lens()
+fn i18nlens_help_shows_cli_commands() {
+    i18nlens()
         .arg("--help")
         .assert()
         .success()
+        .stdout(contains("i18nlens"))
         .stdout(contains("audit"))
         .stdout(contains("ci"))
         .stdout(contains("check"));
+}
+
+#[test]
+fn compatibility_intl_lens_alias_still_runs() {
+    legacy_i18nlens()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(contains("intl-lens"))
+        .stdout(contains("audit"));
 }
 
 #[test]
@@ -178,9 +193,9 @@ fn baseline_write_and_read_suppresses_existing_issues() {
             r#"export const App = () => t("checkout.submit");"#,
         ),
     ]);
-    let baseline = workspace.path().join(".intl-lens-baseline.json");
+    let baseline = workspace.path().join(".i18nlens-baseline.json");
 
-    let mut write_command = intl_lens();
+    let mut write_command = i18nlens();
     write_command
         .arg("--workspace")
         .arg(workspace.path())
@@ -239,6 +254,32 @@ fn compatibility_intl_lens_cli_alias_still_runs() {
 }
 
 #[test]
+fn ci_loads_legacy_baseline_when_new_default_is_absent() {
+    let workspace = write_workspace(&[
+        ("locales/en.json", r#"{"checkout":{"submit":"Submit"}}"#),
+        ("locales/vi.json", r#"{}"#),
+        (
+            "src/App.tsx",
+            r#"export const App = () => t("checkout.submit");"#,
+        ),
+    ]);
+    let baseline = workspace.path().join(".intl-lens-baseline.json");
+
+    let mut write_command = i18nlens();
+    write_command
+        .arg("--workspace")
+        .arg(workspace.path())
+        .arg("audit")
+        .arg("--write-baseline")
+        .arg(&baseline);
+    write_command.assert().success();
+
+    run_json(workspace.path(), &["ci"])
+        .success()
+        .stdout(contains("\"missing_translations\": 0"));
+}
+
+#[test]
 fn fix_dry_run_outputs_reviewable_suggestions() {
     let workspace = write_workspace(&[
         (
@@ -252,7 +293,7 @@ fn fix_dry_run_outputs_reviewable_suggestions() {
         ),
     ]);
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())
@@ -282,7 +323,7 @@ fn fix_add_missing_writes_json_placeholder_values() {
         ),
     ]);
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())
@@ -311,7 +352,7 @@ fn fix_add_missing_defaults_to_source_text() {
         ),
     ]);
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())
@@ -335,7 +376,7 @@ fn fix_add_missing_writes_yaml_locale_files() {
         ),
     ]);
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())
@@ -364,7 +405,7 @@ fn fix_add_missing_writes_arb_locale_files() {
         ),
     ]);
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())
@@ -405,7 +446,7 @@ return [
         ),
     ]);
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())
@@ -436,7 +477,7 @@ fn fix_sort_keys_sorts_nested_json_locale_files() {
         ("src/App.tsx", "export const App = () => null;"),
     ]);
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())
@@ -463,7 +504,7 @@ fn fix_sort_keys_sorts_nested_yaml_locale_files() {
         ("src/App.tsx", "export const App = () => null;"),
     ]);
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())
@@ -487,7 +528,7 @@ fn fix_sort_keys_sorts_arb_locale_files() {
         ("src/App.tsx", "export const App = () => null;"),
     ]);
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())
@@ -517,7 +558,7 @@ return [
     ]);
     let before = fs::read_to_string(workspace.path().join("locales/en.php")).expect("php");
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())
@@ -540,7 +581,7 @@ fn fix_sort_keys_is_idempotent() {
         ("src/App.tsx", "export const App = () => null;"),
     ]);
 
-    let mut first = intl_lens();
+    let mut first = i18nlens();
     first
         .arg("--workspace")
         .arg(workspace.path())
@@ -549,7 +590,7 @@ fn fix_sort_keys_is_idempotent() {
     first.assert().success();
     let once = fs::read_to_string(workspace.path().join("locales/en.json")).expect("en json");
 
-    let mut second = intl_lens();
+    let mut second = i18nlens();
     second
         .arg("--workspace")
         .arg(workspace.path())
@@ -575,7 +616,7 @@ fn fix_to_nested_converts_flat_json_keys() {
         ("src/App.tsx", "export const App = () => null;"),
     ]);
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())
@@ -603,7 +644,7 @@ fn fix_to_flat_converts_nested_yaml_keys() {
         ("src/App.tsx", "export const App = () => null;"),
     ]);
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())
@@ -628,7 +669,7 @@ fn fix_conversion_runs_with_sort_keys() {
         ("src/App.tsx", "export const App = () => null;"),
     ]);
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())
@@ -664,7 +705,7 @@ return [
     let arb_before = fs::read_to_string(workspace.path().join("locales/app_en.arb")).expect("arb");
     let php_before = fs::read_to_string(workspace.path().join("locales/en.php")).expect("php");
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())
@@ -693,7 +734,7 @@ fn fix_to_nested_rejects_conflicting_json_keys() {
     ]);
     let before = fs::read_to_string(workspace.path().join("locales/en.json")).expect("en json");
 
-    let mut command = intl_lens();
+    let mut command = i18nlens();
     command
         .arg("--workspace")
         .arg(workspace.path())

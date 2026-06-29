@@ -38,6 +38,11 @@ impl IntlLensExtension {
             }
         }
 
+        if let Some(path) = worktree.which("i18nlens") {
+            self.cached_binary_path = Some(path.clone());
+            return Ok(path);
+        }
+
         if let Some(path) = worktree.which("intl-lens") {
             self.cached_binary_path = Some(path.clone());
             return Ok(path);
@@ -49,7 +54,7 @@ impl IntlLensExtension {
         );
 
         let release = zed::latest_github_release(
-            "nguyenphutrong/intl-lens",
+            "nguyenphutrong/i18nlens",
             zed::GithubReleaseOptions {
                 require_assets: true,
                 pre_release: false,
@@ -58,7 +63,7 @@ impl IntlLensExtension {
 
         let (platform, arch) = zed::current_platform();
         let asset_name = format!(
-            "intl-lens-{}-{}.{}",
+            "i18nlens-{}-{}.{}",
             match arch {
                 zed::Architecture::Aarch64 => "aarch64",
                 zed::Architecture::X8664 => "x86_64",
@@ -81,9 +86,9 @@ impl IntlLensExtension {
             .find(|asset| asset.name == asset_name)
             .ok_or_else(|| format!("no asset found matching {asset_name}"))?;
 
-        let version_dir = format!("intl-lens-{}", release.version);
+        let version_dir = format!("i18nlens-{}", release.version);
         let binary_path = format!(
-            "{version_dir}/intl-lens{}",
+            "{version_dir}/i18nlens{}",
             match platform {
                 zed::Os::Windows => ".exe",
                 _ => "",

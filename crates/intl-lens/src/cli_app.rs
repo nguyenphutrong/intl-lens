@@ -17,7 +17,7 @@ use crate::i18n::store::TranslationStore;
 use crate::scanner::CodeScanner;
 
 #[derive(Parser)]
-#[command(name = "intl-lens")]
+#[command(name = "i18nlens")]
 #[command(about = "CLI tool for i18n auditing and analysis")]
 #[command(version)]
 struct Cli {
@@ -128,7 +128,7 @@ struct CiArgs {
     #[arg(long)]
     ignore_file: Vec<String>,
 
-    /// Baseline file with accepted existing issues. Defaults to .intl-lens-baseline.json when present.
+    /// Baseline file with accepted existing issues. Defaults to .i18nlens-baseline.json when present.
     #[arg(long)]
     baseline: Option<PathBuf>,
 
@@ -264,8 +264,12 @@ impl From<AuditArgs> for AuditOptions {
 impl AuditOptions {
     fn from_ci(args: CiArgs, workspace: &Path) -> Self {
         let baseline = args.baseline.or_else(|| {
-            let default = workspace.join(".intl-lens-baseline.json");
-            default.exists().then_some(default)
+            let default = workspace.join(".i18nlens-baseline.json");
+            let legacy_default = workspace.join(".intl-lens-baseline.json");
+            default
+                .exists()
+                .then_some(default)
+                .or_else(|| legacy_default.exists().then_some(legacy_default))
         });
 
         Self {
@@ -773,9 +777,11 @@ async fn run_fix(
         return Ok(0);
     }
 
-    println!("Write mode requires an explicit fix option. Run `intl-lens fix --dry-run` to preview fixes.");
     println!(
-        "Supported write options: `intl-lens fix --add-missing --placeholder _TODO_`, `intl-lens fix --sort-keys`, `intl-lens fix --to-nested`, `intl-lens fix --to-flat`."
+        "Write mode requires an explicit fix option. Run `i18nlens fix --dry-run` to preview fixes."
+    );
+    println!(
+        "Supported write options: `i18nlens fix --add-missing --placeholder _TODO_`, `i18nlens fix --sort-keys`, `i18nlens fix --to-nested`, `i18nlens fix --to-flat`."
     );
     Ok(1)
 }

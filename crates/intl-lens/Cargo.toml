@@ -12,16 +12,24 @@ name = "intl_lens"
 path = "src/lib.rs"
 
 [[bin]]
-name = "intl-lens"
+name = "i18nlens"
 path = "src/main.rs"
+
+[[bin]]
+name = "intl-lens"
+path = "src/legacy_main.rs"
 
 [[bin]]
 name = "intl-lens-cli"
 path = "src/cli.rs"
 
 [[bin]]
-name = "intl-lens-mcp"
+name = "i18nlens-mcp"
 path = "src/mcp.rs"
+
+[[bin]]
+name = "intl-lens-mcp"
+path = "src/legacy_mcp.rs"
 
 [dependencies]
 tower-lsp.workspace = true

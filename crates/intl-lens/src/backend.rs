@@ -855,6 +855,7 @@ impl LanguageServer for I18nBackend {
                 )),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec![
+                        "i18nlens.createRawTranslationKey".to_string(),
                         "intl-lens.createRawTranslationKey".to_string(),
                         "intlLens.showTranslation".to_string(),
                     ],
@@ -863,7 +864,7 @@ impl LanguageServer for I18nBackend {
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
-                name: "i18n-lsp".to_string(),
+                name: "i18nlens".to_string(),
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
             }),
         })
@@ -871,7 +872,7 @@ impl LanguageServer for I18nBackend {
 
     async fn initialized(&self, _: InitializedParams) {
         self.client
-            .log_message(MessageType::INFO, "i18n-lsp server initialized")
+            .log_message(MessageType::INFO, "i18nlens server initialized")
             .await;
         self.register_inlay_hint_capability().await;
         self.register_watched_files_capability().await;
@@ -1125,7 +1126,7 @@ impl LanguageServer for I18nBackend {
                 diagnostics: Some(vec![diagnostic.clone()]),
                 command: Some(Command {
                     title: format!("Create raw translation key '{}'", key),
-                    command: "intl-lens.createRawTranslationKey".to_string(),
+                    command: "i18nlens.createRawTranslationKey".to_string(),
                     arguments: Some(vec![Value::String(key)]),
                 }),
                 ..Default::default()
@@ -1146,7 +1147,9 @@ impl LanguageServer for I18nBackend {
             return Ok(None);
         }
 
-        if params.command != "intl-lens.createRawTranslationKey" {
+        if params.command != "i18nlens.createRawTranslationKey"
+            && params.command != "intl-lens.createRawTranslationKey"
+        {
             return Ok(None);
         }
 

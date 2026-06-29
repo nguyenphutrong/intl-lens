@@ -1,6 +1,6 @@
-# Intl Lens
+# I18n Lens
 
-Intl Lens is an i18n intelligence layer for codebases.
+I18n Lens is an i18n intelligence layer for codebases.
 
 It runs in editors through LSP, in CI through a CLI, and in AI coding workflows through an MCP server. The Zed extension is the first editor integration, not the whole product.
 
@@ -8,7 +8,7 @@ It runs in editors through LSP, in CI through a CLI, and in AI coding workflows 
 
 ## Features
 
-Intl Lens helps you answer the questions that usually require opening translation files by hand:
+I18n Lens helps you answer the questions that usually require opening translation files by hand:
 
 - What does this key mean?
 - Is this key defined?
@@ -27,37 +27,46 @@ Current surfaces:
 
 ## Install
 
+### One-Off CLI
+
+After the npm package is published, you can run I18n Lens without a global install:
+
+```bash
+npx i18nlens audit
+bunx i18nlens fix --to-nested
+```
+
 ### Zed Extension
 
 1. Open Zed.
 2. Go to Extensions with `cmd+shift+x`.
-3. Search for `Intl Lens`.
+3. Search for `I18n Lens`.
 4. Install the extension.
 
-The extension launches the `intl-lens` language server.
+The extension launches the `i18nlens` language server.
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/nguyenphutrong/intl-lens.git
-cd intl-lens
+git clone https://github.com/nguyenphutrong/i18nlens.git
+cd i18nlens
 cargo build --release
 ```
 
 This builds:
 
-- `target/release/intl-lens`
-- `target/release/intl-lens-cli`
-- `target/release/intl-lens-mcp`
+- `target/release/i18nlens`
+- `target/release/i18nlens-mcp`
+- compatibility aliases: `target/release/intl-lens`, `target/release/intl-lens-cli`, `target/release/intl-lens-mcp`
 
 Put the binaries on your `PATH` if you want to run them from other projects.
 
 ```bash
-ln -sf "$(pwd)/target/release/intl-lens" ~/.local/bin/intl-lens
-ln -sf "$(pwd)/target/release/intl-lens-mcp" ~/.local/bin/intl-lens-mcp
+ln -sf "$(pwd)/target/release/i18nlens" ~/.local/bin/i18nlens
+ln -sf "$(pwd)/target/release/i18nlens-mcp" ~/.local/bin/i18nlens-mcp
 ```
 
-`intl-lens-cli` is still built as a compatibility alias, but the public CLI command is `intl-lens`.
+`intl-lens`, `intl-lens-cli`, and `intl-lens-mcp` are still built as compatibility aliases, but the public commands are `i18nlens` and `i18nlens-mcp`.
 
 ## Editor Usage
 
@@ -67,23 +76,23 @@ When you write code like this:
 <button>{t("common.actions.submit")}</button>
 ```
 
-Intl Lens can show the source translation inline, display all locale values on hover, warn when the key is missing, and jump to the translation definition.
+I18n Lens can show the source translation inline, display all locale values on hover, warn when the key is missing, and jump to the translation definition.
 
 Manual Zed configuration example:
 
 ```jsonc
 {
   "lsp": {
-    "intl-lens": {
-      "binary": { "path": "intl-lens" }
+    "i18nlens": {
+      "binary": { "path": "i18nlens" }
     }
   },
   "languages": {
     "TSX": {
-      "language_servers": ["typescript-language-server", "intl-lens", "..."]
+      "language_servers": ["typescript-language-server", "i18nlens", "..."]
     },
     "TypeScript": {
-      "language_servers": ["typescript-language-server", "intl-lens", "..."]
+      "language_servers": ["typescript-language-server", "i18nlens", "..."]
     }
   }
 }
@@ -94,61 +103,61 @@ Manual Zed configuration example:
 Run a full audit:
 
 ```bash
-intl-lens audit
+i18nlens audit
 ```
 
 Write machine-readable output for CI or another tool:
 
 ```bash
-intl-lens audit --format json --output i18n-report.json
+i18nlens audit --format json --output i18n-report.json
 ```
 
 Write a Markdown report:
 
 ```bash
-intl-lens audit --format markdown --output i18n-report.md
+i18nlens audit --format markdown --output i18n-report.md
 ```
 
 Check specific files:
 
 ```bash
-intl-lens check src/components/Checkout.tsx src/pages/Home.tsx
+i18nlens check src/components/Checkout.tsx src/pages/Home.tsx
 ```
 
 Include AI-ready fix suggestions:
 
 ```bash
-intl-lens audit --suggest-fixes --format json
+i18nlens audit --suggest-fixes --format json
 ```
 
 Preview and apply missing-key fixes:
 
 ```bash
-intl-lens fix --dry-run
-intl-lens fix --add-missing --placeholder "_TODO_"
-intl-lens fix --sort-keys
-intl-lens fix --to-nested --sort-keys
-intl-lens fix --to-flat --sort-keys
+i18nlens fix --dry-run
+i18nlens fix --add-missing --placeholder "_TODO_"
+i18nlens fix --sort-keys
+i18nlens fix --to-nested --sort-keys
+i18nlens fix --to-flat --sort-keys
 ```
 
 `fix --add-missing` currently writes JSON, YAML, PHP, and ARB locale files. `fix --sort-keys` currently sorts JSON, YAML, and ARB locale files. `fix --to-nested` and `fix --to-flat` currently convert JSON and YAML locale files and can be combined with `--sort-keys`. Other write paths are tracked in [ROADMAP.md](ROADMAP.md).
 
-`audit` and `check` return a non-zero exit code when Intl Lens finds missing or unused keys. `ci` uses stricter CI defaults: it fails on missing translations and placeholder mismatches, and it auto-loads `.intl-lens-baseline.json` when that file exists.
+`audit` and `check` return a non-zero exit code when I18n Lens finds missing or unused keys. `ci` uses stricter CI defaults: it fails on missing translations and placeholder mismatches, and it auto-loads `.i18nlens-baseline.json` when that file exists.
 
 CI policy examples:
 
 ```bash
-intl-lens ci --fail-on missing,placeholder --max-unused 20
-intl-lens audit --fail-on missing,unused,placeholder
-intl-lens audit --ignore-key-pattern '^legacy\.'
-intl-lens ci --ignore-file 'src/generated/**'
+i18nlens ci --fail-on missing,placeholder --max-unused 20
+i18nlens audit --fail-on missing,unused,placeholder
+i18nlens audit --ignore-key-pattern '^legacy\.'
+i18nlens ci --ignore-file 'src/generated/**'
 ```
 
 Baseline flow for projects with existing i18n debt:
 
 ```bash
-intl-lens audit --write-baseline .intl-lens-baseline.json
-intl-lens ci
+i18nlens audit --write-baseline .i18nlens-baseline.json
+i18nlens ci
 ```
 
 ### GitHub Actions Example
@@ -164,14 +173,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: nguyenphutrong/intl-lens@v0.1.6
+      - uses: nguyenphutrong/i18nlens@v0.1.6
         with:
           fail-on: missing,placeholder
           format: markdown
           output: i18n-report.md
 ```
 
-The action installs the matching release binary and runs `intl-lens ci`.
+The action installs the matching release binary and runs `i18nlens ci`.
 
 ### GitLab CI Example
 
@@ -180,14 +189,14 @@ include:
   - local: examples/gitlab-ci.yml
 ```
 
-Or copy [examples/gitlab-ci.yml](examples/gitlab-ci.yml) into your pipeline and adjust `INTL_LENS_VERSION`.
+Or copy [examples/gitlab-ci.yml](examples/gitlab-ci.yml) into your pipeline and adjust `I18NLENS_VERSION`.
 
 ## MCP
 
 Start the MCP server from the project you want to inspect:
 
 ```bash
-intl-lens-mcp
+i18nlens-mcp
 ```
 
 Available tools:
@@ -208,23 +217,25 @@ Available resources:
 
 | Resource | Purpose |
 |----------|---------|
-| `intl-lens://config` | Resolved i18n config |
-| `intl-lens://audit/latest` | Fresh audit report |
-| `intl-lens://translations/index` | Loaded locales and key count |
+| `i18nlens://config` | Resolved i18n config |
+| `i18nlens://audit/latest` | Fresh audit report |
+| `i18nlens://translations/index` | Loaded locales and key count |
 
 Example agent workflow:
 
 ```text
-Run intl-lens audit, list keys missing in Vietnamese, provide translated values, get dry-run diffs, then validate placeholders.
+Run i18nlens audit, list keys missing in Vietnamese, provide translated values, get dry-run diffs, then validate placeholders.
 ```
 
 ## Configuration
 
-Intl Lens looks for configuration in this order:
+I18n Lens looks for configuration in this order:
 
-1. `.intl-lens.json`
-2. `intl-lens.config.json`
-3. `.zed/i18n.json`
+1. `.i18nlens.json`
+2. `i18nlens.config.json`
+3. `.intl-lens.json`
+4. `intl-lens.config.json`
+5. `.zed/i18n.json`
 
 Example:
 
@@ -332,7 +343,7 @@ lib/
 cargo test
 cargo build
 cargo build --release
-RUST_LOG=debug ./target/release/intl-lens
+RUST_LOG=debug ./target/release/i18nlens
 ```
 
 ## Contributing

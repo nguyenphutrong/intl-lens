@@ -1,15 +1,15 @@
-# Intl Lens - Product Requirements Document
+# I18n Lens - Product Requirements Document
 
 ## 1. Project Overview
 
 ### Project Name
-**Intl Lens** - i18n Intelligence Layer for Codebases
+**I18n Lens** - i18n Intelligence Layer for Codebases
 
 ### Project Type
 Open-source developer tool: reusable Rust core with LSP, CLI, and MCP surfaces for internationalization (i18n) management.
 
 ### Core Feature Summary
-Intl Lens gives developers, CI systems, and AI coding agents structured visibility into translation keys, coverage, placeholder safety, and source usage across multiple frameworks and languages.
+I18n Lens gives developers, CI systems, and AI coding agents structured visibility into translation keys, coverage, placeholder safety, and source usage across multiple frameworks and languages.
 
 ### Target Users
 - **Primary**: Software developers working on multi-language applications
@@ -46,7 +46,7 @@ No unified tool combines LSP-level editor integration, CI-friendly auditing, and
 
 ### Non-Goals
 
-1. **Cloud Service**: Intl Lens should not require a hosted backend for core auditing
+1. **Cloud Service**: I18n Lens should not require a hosted backend for core auditing
 2. **Unreviewed Translation Writes**: Provider-generated or AI-generated translations must go through review or dry-run workflows before write mode
 3. **Editor Dependency**: Zed is the first editor surface, but CLI and MCP must work independently
 4. **Team Collaboration Platform**: Comments, assignments, and hosted review workflows are out of scope until the local tooling is stable
@@ -58,7 +58,7 @@ No unified tool combines LSP-level editor integration, CI-friendly auditing, and
 ### 4.1 Module Structure
 
 ```
-intl-lens (Rust crate)
+i18nlens (Rust crate)
 ├── lib.rs              # Public API exports
 ├── main.rs             # LSP server binary (Zed extension)
 ├── cli.rs              # CLI tool binary
@@ -76,9 +76,11 @@ intl-lens (Rust crate)
 
 | Binary | Purpose | Entry Point |
 |--------|---------|-------------|
-| `intl-lens` | LSP server with public CLI subcommands | `main.rs` |
+| `i18nlens` | LSP server with public CLI subcommands | `main.rs` |
+| `i18nlens-mcp` | AI agent integration | `mcp.rs` |
+| `intl-lens` | Compatibility LSP/CLI alias | `main.rs` |
 | `intl-lens-cli` | Compatibility CLI alias | `cli.rs` |
-| `intl-lens-mcp` | AI agent integration | `mcp.rs` |
+| `intl-lens-mcp` | Compatibility MCP alias | `mcp.rs` |
 
 ### 4.3 Key Dependencies
 
@@ -113,10 +115,10 @@ intl-lens (Rust crate)
 #### Commands
 
 ```bash
-intl-lens audit [OPTIONS]
-intl-lens ci [OPTIONS]
-intl-lens check <files>...
-intl-lens fix [OPTIONS]
+i18nlens audit [OPTIONS]
+i18nlens ci [OPTIONS]
+i18nlens check <files>...
+i18nlens fix [OPTIONS]
 ```
 
 #### Options
@@ -251,9 +253,11 @@ Missing Translations
 ### 7.1 Configuration File Location
 
 Priority order:
-1. `.intl-lens.json`
-2. `intl-lens.config.json`
-3. `.zed/i18n.json`
+1. `.i18nlens.json`
+2. `i18nlens.config.json`
+3. `.intl-lens.json`
+4. `intl-lens.config.json`
+5. `.zed/i18n.json`
 
 ### 7.2 Configuration Schema
 
@@ -291,13 +295,13 @@ Priority order:
 
 ```bash
 # Quick audit
-$ intl-lens audit
+$ i18nlens audit
 
 # Generate report for CI/CD
-$ intl-lens audit --format json > i18n-report.json
+$ i18nlens audit --format json > i18n-report.json
 
 # Check specific files
-$ intl-lens check src/components/*.tsx
+$ i18nlens check src/components/*.tsx
 ```
 
 ### 8.3 AI Agent Flow (MCP)

@@ -59,6 +59,8 @@ impl Default for I18nConfig {
 impl I18nConfig {
     pub fn load_from_workspace(root: &Path) -> Self {
         let config_paths = [
+            root.join(".i18nlens.json"),
+            root.join("i18nlens.config.json"),
             root.join(".intl-lens.json"),
             root.join("intl-lens.config.json"),
             root.join(".zed/i18n.json"),
@@ -402,7 +404,35 @@ mod tests {
     }
 
     #[test]
-    fn loads_intl_lens_config_before_zed_config() {
+    fn loads_i18nlens_config_before_legacy_and_zed_config() {
+        let root = test_workspace("i18nlens-config-priority");
+        fs::create_dir_all(root.join(".zed")).expect("create zed dir");
+        fs::write(
+            root.join(".i18nlens.json"),
+            r#"{"localePaths":["i18nlens-locales"],"sourceLocale":"ja"}"#,
+        )
+        .expect("write i18nlens config");
+        fs::write(
+            root.join(".intl-lens.json"),
+            r#"{"localePaths":["intl-locales"],"sourceLocale":"vi"}"#,
+        )
+        .expect("write intl lens config");
+        fs::write(
+            root.join(".zed/i18n.json"),
+            r#"{"localePaths":["zed-locales"],"sourceLocale":"en"}"#,
+        )
+        .expect("write zed config");
+
+        let config = I18nConfig::load_from_workspace(&root);
+
+        assert_eq!(config.locale_paths, vec!["i18nlens-locales".to_string()]);
+        assert_eq!(config.source_locale, "ja");
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn loads_legacy_intl_lens_config_before_zed_config() {
         let root = test_workspace("intl-lens-config-priority");
         fs::create_dir_all(root.join(".zed")).expect("create zed dir");
         fs::write(

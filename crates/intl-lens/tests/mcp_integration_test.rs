@@ -12,7 +12,7 @@ fn write_workspace() -> TempDir {
     fs::create_dir_all(dir.path().join("src")).expect("src dir");
 
     fs::write(
-        dir.path().join(".intl-lens.json"),
+        dir.path().join(".i18nlens.json"),
         r#"{"localePaths":["locales"],"sourceLocale":"en"}"#,
     )
     .expect("config");
@@ -38,7 +38,7 @@ fn write_workspace() -> TempDir {
 fn call_mcp(workspace: &Path, request: Value) -> Value {
     let body = serde_json::to_string(&request).expect("request json");
     let raw = format!("Content-Length: {}\r\n\r\n{}", body.len(), body);
-    let bin = assert_cmd::cargo::cargo_bin("intl-lens-mcp");
+    let bin = assert_cmd::cargo::cargo_bin("i18nlens-mcp");
     let mut child = Command::new(bin)
         .current_dir(workspace)
         .stdin(Stdio::piped())
@@ -125,9 +125,9 @@ fn lists_all_mcp_tools_and_resources() {
     assert_eq!(
         resource_uris,
         vec![
-            "intl-lens://config",
-            "intl-lens://audit/latest",
-            "intl-lens://translations/index"
+            "i18nlens://config",
+            "i18nlens://audit/latest",
+            "i18nlens://translations/index"
         ]
     );
 }
@@ -232,7 +232,7 @@ fn mcp_tools_return_structured_i18n_data() {
     assert!(review_content["markdown"]
         .as_str()
         .expect("markdown")
-        .contains("Intl Lens Review"));
+        .contains("I18n Lens Review"));
 }
 
 #[test]
@@ -406,7 +406,7 @@ fn mcp_resources_read_current_workspace_state() {
             "jsonrpc":"2.0",
             "id":1,
             "method":"resources/read",
-            "params":{"uri":"intl-lens://config"}
+            "params":{"uri":"i18nlens://config"}
         }),
     );
     let config_text = config["result"]["contents"][0]["text"]
@@ -422,7 +422,7 @@ fn mcp_resources_read_current_workspace_state() {
             "jsonrpc":"2.0",
             "id":1,
             "method":"resources/read",
-            "params":{"uri":"intl-lens://audit/latest"}
+            "params":{"uri":"i18nlens://audit/latest"}
         }),
     );
     let latest_text = latest["result"]["contents"][0]["text"]
@@ -437,7 +437,7 @@ fn mcp_resources_read_current_workspace_state() {
             "jsonrpc":"2.0",
             "id":1,
             "method":"resources/read",
-            "params":{"uri":"intl-lens://translations/index"}
+            "params":{"uri":"i18nlens://translations/index"}
         }),
     );
     let inventory_text = inventory["result"]["contents"][0]["text"]
