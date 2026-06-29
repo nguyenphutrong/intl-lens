@@ -1091,7 +1091,7 @@ fn sort_yaml_value(value: &mut serde_yaml::Value) {
             for (_, child) in &mut entries {
                 sort_yaml_value(child);
             }
-            entries.sort_by(|(left, _), (right, _)| yaml_sort_key(left).cmp(&yaml_sort_key(right)));
+            entries.sort_by_key(|(left, _)| yaml_sort_key(left));
             *map = entries.into_iter().collect();
         }
         serde_yaml::Value::Sequence(items) => {
