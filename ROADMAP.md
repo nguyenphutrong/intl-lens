@@ -394,14 +394,47 @@ These checks should be configurable so teams can adopt them gradually.
 
 ## Release Plan
 
+Current release surfaces:
+
+- GitHub Release binaries are built from tags matching `v*`.
+- Release assets use the new `i18nlens-*` names and include the legacy `intl-lens` binary for compatibility.
+- Legacy `intl-lens-*` assets are also published during the transition.
+- npm distribution uses the scoped package `@i18nlens/cli`; the installed executable remains `i18nlens`.
+- npm publishing is configured through GitHub Actions Trusted Publishing, not `NPM_TOKEN`.
+- The composite GitHub Action lives in this repository and installs the matching release binary before running `i18nlens ci`.
+
+Manual setup required before the first npm release:
+
+- Create or claim the npm package `@i18nlens/cli` under the `i18nlens` npm org.
+- Configure npm Trusted Publisher for `@i18nlens/cli`:
+  - GitHub owner: `nguyenphutrong`
+  - Repository: current repository name
+  - Workflow: `release.yml`
+  - Environment: empty unless the workflow later adds a GitHub Environment.
+- If the GitHub repository is renamed from `intl-lens` to `i18nlens`, update `package.json`, Trusted Publisher settings, release examples, and local git remotes in the same change.
+
+Release checklist:
+
+1. Update workspace/package versions.
+2. Run `cargo fmt --all -- --check`.
+3. Run `cargo clippy --all-targets -- -D warnings`.
+4. Run `cargo build --all-targets`.
+5. Run `cargo test --all-targets`.
+6. Run `npm pack --dry-run`.
+7. Push a tag such as `v0.1.7`.
+8. Confirm GitHub Release assets include both `i18nlens-*` and legacy `intl-lens-*`.
+9. Confirm npm published `@i18nlens/cli` and `npx @i18nlens/cli --help` works.
+
+Version milestones:
+
 | Milestone | Focus |
 |-----------|-------|
-| `0.2.0` | Documented CLI and MCP, CI-ready audit improvements, tests |
-| `0.3.0` | Safe auto-fix dry-run and write mode |
-| `0.4.0` | Expanded MCP agent toolkit |
-| `0.5.0` | Extraction MVP |
-| `0.6.0` | Monorepo and namespace support |
-| `1.0.0` | Stable CLI/MCP contracts, production docs, packaged integrations |
+| `0.1.x` | Rebrand to I18n Lens, publish GitHub binaries, publish `@i18nlens/cli`, keep legacy aliases |
+| `0.2.0` | Documented CLI and MCP, CI-ready audit improvements, packaged integrations |
+| `0.3.0` | Complete safe auto-fix write workflows, including remove-unused review mode |
+| `0.4.0` | Extraction MVP |
+| `0.5.0` | Monorepo and namespace support |
+| `1.0.0` | Stable CLI/MCP contracts, production docs, release process, and compatibility policy |
 
 ## Near-Term Checklist
 
@@ -411,5 +444,11 @@ These checks should be configurable so teams can adopt them gradually.
 - [x] Implement baseline file support.
 - [x] Replace `fix` stub with dry-run output.
 - [x] Add README examples for CI audit usage.
+- [x] Rebrand public CLI to `i18nlens` while keeping legacy aliases.
+- [x] Add GitHub Release assets for `i18nlens-*` and legacy `intl-lens-*`.
+- [x] Add npm package wrapper for `@i18nlens/cli`.
+- [x] Add npm Trusted Publishing job to the release workflow.
+- [ ] Configure npm Trusted Publisher for `@i18nlens/cli` in the npm org settings.
+- [ ] Run the first tag release and verify GitHub Release plus npm publish output.
 
 Last updated: 2026-06-29
