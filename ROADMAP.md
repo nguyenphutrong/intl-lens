@@ -408,10 +408,10 @@ Manual setup required before the first npm release:
 - Create or claim the npm package `@i18nlens/cli` under the `i18nlens` npm org.
 - Configure npm Trusted Publisher for `@i18nlens/cli`:
   - GitHub owner: `nguyenphutrong`
-  - Repository: current repository name
+  - Repository: `i18nlens`
   - Workflow: `release.yml`
   - Environment: empty unless the workflow later adds a GitHub Environment.
-- If the GitHub repository is renamed from `intl-lens` to `i18nlens`, update `package.json`, Trusted Publisher settings, release examples, and local git remotes in the same change.
+- Local git remotes should point at `git@github.com:nguyenphutrong/i18nlens.git`.
 
 Release checklist:
 

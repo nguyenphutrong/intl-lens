@@ -1,11 +1,11 @@
 {
   "name": "@i18nlens/cli",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "I18n intelligence layer for codebases",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nguyenphutrong/intl-lens.git"
+    "url": "git+https://github.com/nguyenphutrong/i18nlens.git"
   },
   "bin": {
     "i18nlens": "bin/i18nlens.js"
