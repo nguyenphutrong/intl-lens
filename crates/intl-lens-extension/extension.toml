@@ -4,7 +4,7 @@ version = "0.1.5"
 schema_version = 1
 license = "MIT"
 authors = ["Trong Nguyen"]
-description = "Internationalization (i18n) support for Zed - code lens translations, hover info, and diagnostics"
+description = "Internationalization (i18n) support for Zed - inline translations, hover info, and diagnostics"
 repository = "https://github.com/nguyenphutrong/intl-lens"
 
 [language_servers.intl-lens]

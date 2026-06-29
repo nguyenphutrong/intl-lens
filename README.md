@@ -2,14 +2,14 @@
 
 # 🔍 Intl Lens
 
-**i18n support for Zed Editor - see translations via code lens.**
+**i18n support for Zed Editor - see translations inline.**
 
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Zed](https://img.shields.io/badge/zed-extension-purple.svg)](https://zed.dev)
 
 Stop guessing what `t("common.buttons.submit")` means.<br/>
-**See translations via code lens. Catch missing keys instantly. Ship with confidence.**
+**See translations inline. Catch missing keys instantly. Ship with confidence.**
 
 [Features](#-features) · [Install](#-installation) · [Configure](#-configuration) · [Contribute](#-contributing)
 
@@ -21,7 +21,7 @@ Stop guessing what `t("common.buttons.submit")` means.<br/>
 
 | Feature | Description |
 |---------|-------------|
-| 🔍 **Code Lens** | See translation values right next to your i18n keys |
+| 🔍 **Inline Hints** | See translation values right next to your i18n keys |
 | 💬 **Hover Preview** | View all locale translations with quick jump links |
 | ⚠️ **Missing Key Detection** | Get warnings for undefined translation keys |
 | 🌐 **Incomplete Coverage** | Know which locales are missing translations |
@@ -147,7 +147,21 @@ Create `.zed/i18n.json` in your project root:
 | `localePaths` | `string[]` | `["locales", "i18n", ...]` | Where to find translation files |
 | `sourceLocale` | `string` | `"en"` | Your primary language |
 | `keyStyle` | `"nested" \| "flat"` | `"auto"` | JSON structure style |
+| `displayMode` | `"inlayHints" \| "codeLens"` | `"inlayHints"` | Translation display surface; `codeLens` is experimental |
 | `functionPatterns` | `string[]` | See below | Custom regex patterns |
+
+</details>
+
+<details>
+<summary><strong>🧪 Experimental Code Lens Display</strong></summary>
+
+```json
+{
+  "displayMode": "codeLens"
+}
+```
+
+Use `codeLens` only with a Zed build that supports `code_lens`. The default remains `inlayHints`.
 
 </details>
 

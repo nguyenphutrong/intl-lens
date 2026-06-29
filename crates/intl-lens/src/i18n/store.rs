@@ -20,13 +20,6 @@ pub struct TranslationLocation {
     pub line: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TranslationKeyLocation {
-    pub key: String,
-    pub locale: String,
-    pub location: TranslationLocation,
-}
-
 pub struct TranslationStore {
     translations: DashMap<String, HashMap<String, TranslationEntry>>,
     locale_files: DashMap<String, HashSet<PathBuf>>,
@@ -225,36 +218,6 @@ impl TranslationStore {
         })
     }
 
-    pub fn get_keys_in_file(&self, file_path: &Path) -> Vec<TranslationKeyLocation> {
-        let mut keys = Vec::new();
-
-        for locale_entry in self.translations.iter() {
-            let locale = locale_entry.key().clone();
-            for (key, entry) in locale_entry.value() {
-                if same_path(&entry.file_path, file_path) {
-                    let line = Self::find_key_line_in_file(&entry.file_path, key).unwrap_or(0);
-                    keys.push(TranslationKeyLocation {
-                        key: key.clone(),
-                        locale: locale.clone(),
-                        location: TranslationLocation {
-                            file_path: entry.file_path.clone(),
-                            line,
-                        },
-                    });
-                }
-            }
-        }
-
-        keys.sort_by(|a, b| {
-            a.location
-                .line
-                .cmp(&b.location.line)
-                .then_with(|| a.key.cmp(&b.key))
-                .then_with(|| a.locale.cmp(&b.locale))
-        });
-        keys
-    }
-
     fn find_key_line_in_file(file_path: &Path, key: &str) -> Option<usize> {
         let content = std::fs::read_to_string(file_path).ok()?;
 
@@ -318,17 +281,6 @@ impl TranslationStore {
                     .unwrap_or(true)
             })
             .collect()
-    }
-}
-
-fn same_path(a: &Path, b: &Path) -> bool {
-    if a == b {
-        return true;
-    }
-
-    match (a.canonicalize(), b.canonicalize()) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
     }
 }
 
@@ -450,37 +402,6 @@ mod tests {
             store.get_translation("hello", "fr").as_deref(),
             Some("Bonjour")
         );
-
-        fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn lists_translation_keys_defined_in_file() {
-        let root = test_workspace("keys-in-file");
-        let locales_dir = root.join("locales/en");
-        fs::create_dir_all(&locales_dir).expect("create locale dir");
-
-        let file_path = locales_dir.join("common.json");
-        fs::write(
-            &file_path,
-            r#"{
-  "buttons": {
-    "submit": "Submit",
-    "cancel": "Cancel"
-  }
-}"#,
-        )
-        .expect("write translations");
-
-        let store = TranslationStore::new(root.clone());
-        store.scan_and_load(&["locales".to_string()]);
-
-        let keys = store.get_keys_in_file(&file_path);
-        let key_names: Vec<_> = keys.iter().map(|key| key.key.as_str()).collect();
-
-        assert_eq!(key_names, vec!["buttons.submit", "buttons.cancel"]);
-        assert!(keys.iter().all(|key| key.locale == "en"));
-        assert_eq!(keys[0].location.file_path, file_path);
 
         fs::remove_dir_all(root).ok();
     }
