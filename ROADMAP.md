@@ -408,7 +408,7 @@ These checks should be configurable so teams can adopt them gradually.
 ## Near-Term Checklist
 
 - [x] Add CLI tests for CI audit policy, output formats, filters, and exit codes.
-- [ ] Add MCP integration tests for all tools and resources.
+- [x] Add MCP integration tests for all tools and resources.
 - [x] Implement `--fail-on`.
 - [x] Implement baseline file support.
 - [ ] Replace `fix` stub with dry-run output.
