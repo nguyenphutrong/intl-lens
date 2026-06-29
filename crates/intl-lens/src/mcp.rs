@@ -102,6 +102,13 @@ struct TranslationContextParams {
     include_usage: bool,
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct ReviewI18nPrParams {
+    workspace: Option<PathBuf>,
+    fail_on: Vec<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct ServerInfo {
     name: &'static str,
@@ -233,6 +240,10 @@ impl McpServer {
             "get_translation_context" => {
                 let arguments: TranslationContextParams = serde_json::from_value(arguments)?;
                 self.get_translation_context(arguments)?
+            }
+            "review_i18n_pr" => {
+                let arguments: ReviewI18nPrParams = serde_json::from_value(arguments)?;
+                self.review_i18n_pr(arguments)?
             }
             name => return Err(anyhow!("Unknown tool: {name}")),
         };
@@ -582,6 +593,28 @@ impl McpServer {
         }))
     }
 
+    fn review_i18n_pr(&self, params: ReviewI18nPrParams) -> Result<Value> {
+        let workspace = self.resolve_workspace(params.workspace);
+        let report = self.build_report(&workspace)?;
+        let fail_on = if params.fail_on.is_empty() {
+            vec!["missing".to_string(), "placeholder".to_string()]
+        } else {
+            params.fail_on
+        };
+        let blocking = review_should_block(&report, &fail_on);
+        let findings = review_findings(&report, &fail_on);
+        let markdown = review_markdown(&report, blocking, &findings);
+
+        Ok(json!({
+            "workspace": workspace,
+            "blocking": blocking,
+            "fail_on": fail_on,
+            "summary": report.summary,
+            "findings": findings,
+            "markdown": markdown
+        }))
+    }
+
     fn resolve_workspace(&self, override_path: Option<PathBuf>) -> PathBuf {
         override_path.unwrap_or_else(|| self.workspace_root.clone())
     }
@@ -906,6 +939,88 @@ fn unified_diff(workspace: &Path, path: &Path, before: &str, after: &str) -> Str
     diff
 }
 
+fn review_should_block(report: &AuditReport, fail_on: &[String]) -> bool {
+    fail_on.iter().any(|kind| match kind.as_str() {
+        "missing" => report.summary.missing_translations > 0,
+        "unused" => report.summary.unused_keys > 0,
+        "placeholder" => report.summary.placeholder_mismatches > 0,
+        _ => false,
+    })
+}
+
+fn review_findings(report: &AuditReport, fail_on: &[String]) -> Vec<Value> {
+    let mut findings = Vec::new();
+
+    if fail_on.iter().any(|kind| kind == "missing") {
+        for item in &report.missing {
+            findings.push(json!({
+                "kind": "missing",
+                "severity": "error",
+                "key": item.key,
+                "locales": item.missing_in,
+                "source_locale": item.source_locale,
+                "source_value": item.source_value
+            }));
+        }
+    }
+
+    if fail_on.iter().any(|kind| kind == "placeholder") {
+        for item in &report.placeholder_issues {
+            findings.push(json!({
+                "kind": "placeholder",
+                "severity": "error",
+                "key": item.key,
+                "expected_placeholders": item.expected_placeholders,
+                "locales": item.locale_values.keys().cloned().collect::<Vec<_>>()
+            }));
+        }
+    }
+
+    if fail_on.iter().any(|kind| kind == "unused") {
+        for item in &report.unused {
+            findings.push(json!({
+                "kind": "unused",
+                "severity": "warning",
+                "key": item.key,
+                "file": item.defined_in.file_path
+            }));
+        }
+    }
+
+    findings
+}
+
+fn review_markdown(report: &AuditReport, blocking: bool, findings: &[Value]) -> String {
+    let mut markdown = String::new();
+    markdown.push_str(if blocking {
+        "## Intl Lens Review: Action Required\n\n"
+    } else {
+        "## Intl Lens Review: Passed\n\n"
+    });
+    markdown.push_str(&format!(
+        "- Missing translations: {}\n",
+        report.summary.missing_translations
+    ));
+    markdown.push_str(&format!("- Unused keys: {}\n", report.summary.unused_keys));
+    markdown.push_str(&format!(
+        "- Placeholder issues: {}\n",
+        report.summary.placeholder_mismatches
+    ));
+
+    if !findings.is_empty() {
+        markdown.push_str("\n### Findings\n\n");
+        for finding in findings.iter().take(20) {
+            markdown.push_str(&format!(
+                "- `{}` `{}`\n",
+                finding["kind"].as_str().unwrap_or("unknown"),
+                finding["key"].as_str().unwrap_or("")
+            ));
+        }
+    }
+
+    markdown
+}
+
 fn tool_definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
@@ -1018,6 +1133,21 @@ fn tool_definitions() -> Vec<ToolDefinition> {
                 }
             }),
         },
+        ToolDefinition {
+            name: "review_i18n_pr",
+            description: "Return a structured PR-style i18n review from the current audit.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "workspace": { "type": "string" },
+                    "fail_on": {
+                        "type": "array",
+                        "items": { "type": "string", "enum": ["missing", "unused", "placeholder"] },
+                        "default": ["missing", "placeholder"]
+                    }
+                }
+            }),
+        },
     ]
 }
 
@@ -1104,7 +1234,7 @@ mod tests {
     #[test]
     fn serializes_tool_definitions() {
         let tools = tool_definitions();
-        assert_eq!(tools.len(), 7);
+        assert_eq!(tools.len(), 8);
         assert_eq!(tools[0].name, "audit_i18n");
     }
 

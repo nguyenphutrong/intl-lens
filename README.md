@@ -198,6 +198,7 @@ Available tools:
 | `apply_translation_patch` | Apply or dry-run caller-provided translations; defaults to dry-run |
 | `validate_placeholders` | Check placeholder consistency for one key |
 | `get_translation_context` | Return locale values, missing locales, usage context, and target files for one key |
+| `review_i18n_pr` | Return a structured PR-style i18n review and Markdown comment |
 
 Available resources:
 

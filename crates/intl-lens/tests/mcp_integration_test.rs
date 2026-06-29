@@ -106,7 +106,8 @@ fn lists_all_mcp_tools_and_resources() {
             "translate_missing_keys",
             "apply_translation_patch",
             "validate_placeholders",
-            "get_translation_context"
+            "get_translation_context",
+            "review_i18n_pr"
         ]
     );
 
@@ -211,6 +212,26 @@ fn mcp_tools_return_structured_i18n_data() {
         .expect("files")
         .iter()
         .any(|file| file.as_str().expect("file").ends_with("locales/vi.json")));
+
+    let review = call_mcp(
+        workspace.path(),
+        tool_call(
+            "review_i18n_pr",
+            json!({"fail_on":["missing","placeholder"]}),
+        ),
+    );
+    let review_content = &review["result"]["structuredContent"];
+    assert_eq!(review_content["blocking"], true);
+    assert_eq!(review_content["summary"]["missing_translations"], 2);
+    assert!(review_content["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .any(|finding| finding["kind"] == "missing" && finding["key"] == "checkout.submit"));
+    assert!(review_content["markdown"]
+        .as_str()
+        .expect("markdown")
+        .contains("Intl Lens Review"));
 }
 
 #[test]
